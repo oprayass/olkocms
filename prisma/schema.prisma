@@ -1,0 +1,95 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id        String   @id @default(cuid())
+  name      String?
+  email     String?  @unique
+  password  String?
+  role      String   @default("staff")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  orders    Order[]
+  messages  Message[]
+}
+
+model Order {
+  id           String   @id @default(cuid())
+  orderId      String   @unique
+  customerName String
+  phone        String
+  address      String?
+  product      String
+  quantity     Int      @default(1)
+  price        Float
+  status       String   @default("Pending")
+  courier      String?
+  trackingNo   String?
+  platform     String?
+  staffId      String?
+  staff        User?    @relation(fields: [staffId], references: [id])
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Message {
+  id           String   @id @default(cuid())
+  platform     String
+  customerId   String
+  customerName String
+  content      String
+  isFromUs     Boolean  @default(false)
+  aiReplied    Boolean  @default(false)
+  replied      Boolean  @default(false)
+  replyText    String?
+  staffId      String?
+  staff        User?    @relation(fields: [staffId], references: [id])
+  createdAt    DateTime @default(now())
+}
+
+model Followup {
+  id           String   @id @default(cuid())
+  customerName String
+  phone        String
+  platform     String
+  lastMsg      String?
+  followupDate String
+  status       String   @default("Upcoming")
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
+model Shipment {
+  id          String   @id @default(cuid())
+  orderId     String
+  customer    String
+  phone       String
+  product     String
+  courier     String
+  tracking    String?
+  status      String   @default("Pending Pickup")
+  charge      Float    @default(0)
+  estimated   String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Staff {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  phone     String?
+  role      String   @default("Sales")
+  status    String   @default("Active")
+  password  String?
+  joinDate  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
