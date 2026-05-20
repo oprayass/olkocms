@@ -3,20 +3,20 @@ import { useState } from 'react'
 
 const mockMessages = [
   { id: 1, name: 'Bikash Thapa', platform: 'FB', msg: 'Bhai yo jacket ko price kati ho?', time: '2 min ago', replied: false, aiReply: '' },
-  { id: 2, name: 'Anita Gurung', platform: 'IG', msg: 'Order kahile aaucha?', time: '15 min ago', replied: true, aiReply: 'Namaste! Tapaaiko order 2-3 din ma deliver hola.' },
+  { id: 2, name: 'Anita Gurung', platform: 'IG', msg: 'Order kahile aaucha?', time: '15 min ago', replied: true, aiReply: 'Namaste! Tapaaiko order 2-3 days ma deliver huncha.' },
   { id: 3, name: 'Suresh KC', platform: 'WA', msg: 'Cash on delivery huncha?', time: '1 hr ago', replied: false, aiReply: '' },
   { id: 4, name: 'Priya Shrestha', platform: 'FB', msg: 'What is the return policy?', time: '2 hr ago', replied: false, aiReply: '' },
-  { id: 5, name: 'Ramesh Oli', platform: 'IG', msg: 'Bhai available xa?', time: '3 hr ago', replied: true, aiReply: 'Namaste! Ho available xa, order garnu hola!' },
+  { id: 5, name: 'Ramesh Oli', platform: 'IG', msg: 'Bhai available xa?', time: '3 hr ago', replied: true, aiReply: 'Namaste! Ho available xa, order garnu hola.' },
   { id: 6, name: 'Sunita Tamang', platform: 'WA', msg: 'Discount dinus na bhai', time: '4 hr ago', replied: false, aiReply: '' },
 ]
 
-const platformStyle: Record<string,string> = {
+const platformStyle: Record<string, string> = {
   FB: 'bg-blue-600',
   IG: 'bg-gradient-to-br from-pink-500 to-purple-600',
   WA: 'bg-emerald-600',
 }
 
-const platformLabel: Record<string,string> = {
+const platformLabel: Record<string, string> = {
   FB: 'Facebook',
   IG: 'Instagram',
   WA: 'WhatsApp',
@@ -37,11 +37,19 @@ export default function MessagesPage() {
       const response = await fetch('/api/ai-reply', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ message: msg })
+        body: JSON.stringify({
+          customerMessage: msg,
+          customerName: selected?.name || 'Customer',
+          orderDetails: ''
+        })
       })
       const data = await response.json()
-      setReplyText(data.reply)
-    } catch {
+      if (data.reply) {
+        setReplyText(data.reply)
+      } else {
+        setReplyText('Error: ' + (data.error || 'Unknown error'))
+      }
+    } catch (err) {
       setReplyText('Error generating reply. Please try again.')
     }
     setLoading(false)
@@ -65,7 +73,7 @@ export default function MessagesPage() {
       <div className="flex gap-6 h-[calc(100vh-180px)]">
         <div className="w-80 flex flex-col gap-3">
           <div className="flex gap-2">
-            {['All','FB','IG','WA'].map(p => (
+            {['All', 'FB', 'IG', 'WA'].map(p => (
               <button
                 key={p}
                 onClick={() => setFilter(p)}
@@ -140,7 +148,7 @@ export default function MessagesPage() {
                 disabled={loading}
                 className="w-full py-2 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-600/30 transition-all disabled:opacity-50"
               >
-                {loading ? 'Generating AI Reply...' : '🤖 Generate AI Reply'}
+                {loading ? 'Generating AI Reply...' : 'Generate AI Reply'}
               </button>
             )}
             <div className="flex gap-2">

@@ -1,35 +1,48 @@
-import { NextRequest, NextResponse } from 'next/server'
+﻿import { NextRequest, NextResponse } from 'next/server';
+import Anthropic from '@anthropic-ai/sdk';
+
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+});
 
 export async function POST(req: NextRequest) {
-  const { message } = await req.json()
+  try {
+    const { customerMessage, customerName, orderDetails } = await req.json();
 
-  const isNepali = /[ऀ-ॿ]/.test(message)
-  const isMixed = isNepali && /[a-zA-Z]{3,}/.test(message)
-  const isEnglish = !isNepali
+    if (!customerMessage) {
+      return NextResponse.json(
+        { error: 'customerMessage is required' },
+        { status: 400 }
+      );
+    }
 
-  let lang = 'Nepali Romanized (common spoken style like: Namaste! Tapaaiko...'
-  if (isEnglish) lang = 'English'
-  if (isMixed) lang = 'Mixed Nepali-English (Hinglish style)'
+    const systemPrompt = `You are a helpful customer service representative for OlkoCMS, a Nepali e-commerce management system. Write professional, friendly replies in the same language the customer used (Nepali or English). Keep replies concise (2-4 sentences), empathetic, and solution-oriented.`;
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      'x-api-key': process.env.ANTHROPIC_API_KEY || '',
-      'anthropic-version': '2023-06-01'
-    },
-    body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
-      max_tokens: 200,
-      messages: [{
-        role: 'user',
-        content: 'You are a helpful Nepali e-commerce customer service assistant for OlkoCMS. Reply in ' + lang + '. Keep it short, friendly and professional. Customer message: ' + message
-      }]
-    })
-  })
+    const userPrompt = `Customer Name: ${customerName || 'Customer'}
+${orderDetails ? `Order Details: ${orderDetails}` : ''}
+Customer Message: ${customerMessage}
 
-  const data = await response.json()
-  const reply = data.content?.[0]?.text || 'Sorry, could not generate reply.'
+Write a professional reply to this customer message.`;
 
-  return NextResponse.json({ reply })
+    const message = await client.messages.create({
+      model: 'claude-sonnet-4-5',
+      max_tokens: 1024,
+      messages: [{ role: 'user', content: userPrompt }],
+      system: systemPrompt,
+    });
+
+    const reply = message.content[0].type === 'text'
+      ? message.content[0].text
+      : '';
+
+    return NextResponse.json({ reply });
+
+  } catch (error: any) {
+    console.error('AI Reply error:', error);
+    return NextResponse.json(
+      { error: error.message || 'Failed to generate reply' },
+      { status: 500 }
+    );
+  }
 }
+

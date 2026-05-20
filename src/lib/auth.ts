@@ -12,11 +12,10 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email }
-        })
-        if (!user) return null
-        return { id: user.id, email: user.email, name: user.name, role: user.role }
+        const staff = await prisma.staff.findUnique({ where: { email: credentials.email } })
+        if (!staff) return null
+        if (staff.password !== credentials.password) return null
+        return { id: staff.id, email: staff.email, name: staff.name, role: staff.role }
       }
     })
   ],
@@ -30,8 +29,7 @@ export const authOptions: NextAuthOptions = {
       return session
     }
   },
-  pages: {
-    signIn: '/login'
-  },
-  session: { strategy: 'jwt' }
+  pages: { signIn: '/login' },
+  session: { strategy: 'jwt' },
+  secret: process.env.NEXTAUTH_SECRET || 'olkocms-secret-key-2024',
 }
