@@ -6,7 +6,11 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
     const body = await req.json()
     const message = await prisma.message.update({
       where: { id: params.id },
-      data: body
+      data: {
+        replied: body.replied,
+        replyText: body.replyText,
+        status: 'replied',
+      },
     })
     return NextResponse.json(message)
   } catch (error) {

@@ -8,13 +8,13 @@ datasource db {
 }
 
 model User {
-  id        String   @id @default(cuid())
+  id        String    @id @default(cuid())
   name      String?
-  email     String?  @unique
+  email     String?   @unique
   password  String?
-  role      String   @default("staff")
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  role      String    @default("staff")
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
   orders    Order[]
   messages  Message[]
 }
@@ -39,18 +39,21 @@ model Order {
 }
 
 model Message {
-  id           String   @id @default(cuid())
-  platform     String
-  customerId   String
-  customerName String
-  content      String
-  isFromUs     Boolean  @default(false)
-  aiReplied    Boolean  @default(false)
-  replied      Boolean  @default(false)
-  replyText    String?
-  staffId      String?
-  staff        User?    @relation(fields: [staffId], references: [id])
-  createdAt    DateTime @default(now())
+  id         String   @id @default(cuid())
+  platform   String
+  senderId   String
+  senderName String
+  pageId     String?
+  message    String
+  timestamp  DateTime @default(now())
+  status     String   @default("new")
+  isFromUs   Boolean  @default(false)
+  aiReplied  Boolean  @default(false)
+  replied    Boolean  @default(false)
+  replyText  String?
+  staffId    String?
+  staff      User?    @relation(fields: [staffId], references: [id])
+  createdAt  DateTime @default(now())
 }
 
 model Followup {
@@ -67,18 +70,18 @@ model Followup {
 }
 
 model Shipment {
-  id          String   @id @default(cuid())
-  orderId     String
-  customer    String
-  phone       String
-  product     String
-  courier     String
-  tracking    String?
-  status      String   @default("Pending Pickup")
-  charge      Float    @default(0)
-  estimated   String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id        String   @id @default(cuid())
+  orderId   String
+  customer  String
+  phone     String
+  product   String
+  courier   String
+  tracking  String?
+  status    String   @default("Pending Pickup")
+  charge    Float    @default(0)
+  estimated String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 }
 
 model Staff {

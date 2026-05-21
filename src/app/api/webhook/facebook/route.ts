@@ -1,0 +1,46 @@
+﻿import { prisma } from '@/lib/prisma';
+
+export const POST = async (req: Request) => {
+  try {
+    const body = await req.json();
+    console.log('Facebook webhook received:', JSON.stringify(body));
+    if (body.object === 'page') {
+      for (const entry of body.entry) {
+        const pageId = entry.id;
+        if (entry.messaging) {
+          for (const event of entry.messaging) {
+            if (event.message && !event.message.is_echo) {
+              await prisma.message.create({ data: { platform: 'facebook', senderId: event.sender.id, senderName: event.sender.id, pageId: pageId, message: event.message.text ?? '[media]', timestamp: new Date(event.timestamp), status: 'new' } });
+            }
+          }
+        }
+        if (entry.changes) {
+          for (const change of entry.changes) {
+            if (change.field === 'feed' && change.value?.message) {
+              await prisma.message.create({ data: { platform: 'facebook', senderId: change.value.from?.id ?? 'unknown', senderName: change.value.from?.name ?? 'Unknown', pageId: pageId, message: change.value.message, timestamp: new Date(), status: 'new' } });
+            }
+          }
+        }
+      }
+    }
+    return new Response('EVENT_RECEIVED', { status: 200 });
+  } catch (err) {
+    console.error('Webhook error:', err);
+    return new Response('Bad Request', { status: 400 });
+  }
+};
+
+export const GET = async (req: Request) => {
+  try {
+    const url = new URL(req.url);
+    const mode = url.searchParams.get('hub.mode');
+    const challenge = url.searchParams.get('hub.challenge');
+    const token = url.searchParams.get('hub.verify_token');
+    if (mode === 'subscribe' && token === process.env.WEBHOOK_VERIFY_TOKEN) {
+      return new Response(challenge ?? '', { status: 200 });
+    }
+    return new Response('Forbidden', { status: 403 });
+  } catch (err) {
+    return new Response('Bad Request', { status: 400 });
+  }
+};
