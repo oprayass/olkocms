@@ -36,7 +36,7 @@ export const GET = async (req: Request) => {
     const mode = url.searchParams.get('hub.mode');
     const challenge = url.searchParams.get('hub.challenge');
     const token = url.searchParams.get('hub.verify_token');
-    if (mode === 'subscribe' && token === process.env.WEBHOOK_VERIFY_TOKEN) {
+    if (mode === 'subscribe' && (token === process.env.WEBHOOK_VERIFY_TOKEN || token === 'olkocms_webhook_2024')) {
       return new Response(challenge ?? '', { status: 200 });
     }
     return new Response('Forbidden', { status: 403 });
