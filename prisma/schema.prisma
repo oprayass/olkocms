@@ -255,3 +255,51 @@ model AIConversation {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
+// =================== SUBSCRIPTION ===================
+model Plan {
+  id            String         @id @default(cuid())
+  name          String         // Starter, Growth, Pro
+  priceMonthly  Float
+  priceYearly   Float
+  maxPages      Int            @default(1)
+  maxStaff      Int            @default(2)
+  aiReply       Boolean        @default(true)
+  darazAccess   Boolean        @default(false)
+  reportsAccess Boolean        @default(false)
+  isActive      Boolean        @default(true)
+  createdAt     DateTime       @default(now())
+  subscriptions Subscription[]
+}
+
+model Subscription {
+  id              String    @id @default(cuid())
+  businessName    String
+  email           String    @unique
+  phone           String?
+  planId          String
+  plan            Plan      @relation(fields: [planId], references: [id])
+  status          String    @default("Trial")  // Trial, Active, Expired, Cancelled
+  billingCycle    String    @default("monthly") // monthly, yearly
+  trialEndsAt     DateTime
+  currentPeriodEnd DateTime
+  pagesConnected  Int       @default(0)
+  staffCount      Int       @default(0)
+  notes           String?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+  payments        Payment[]
+}
+
+model Payment {
+  id             String       @id @default(cuid())
+  subscriptionId String
+  subscription   Subscription @relation(fields: [subscriptionId], references: [id])
+  amount         Float
+  method         String       // eSewa, Khalti, Bank, Cash
+  status         String       @default("Pending") // Pending, Completed, Failed
+  reference      String?
+  paidAt         DateTime?
+  periodStart    DateTime
+  periodEnd      DateTime
+  createdAt      DateTime     @default(now())
+}
