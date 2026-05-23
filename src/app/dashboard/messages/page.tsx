@@ -33,6 +33,7 @@ interface Thread {
   senderId: string
   senderName: string
   platform: string
+  pageId?: string
   lastMessage: string
   lastTime: string
   unread: boolean
@@ -49,10 +50,11 @@ export default function MessagesPage() {
   const [replyText, setReplyText] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
+  const [handoffSending, setHandoffSending] = useState(false)
+  const [handoffDone, setHandoffDone] = useState<Set<string>>(new Set())
 
   const buildThreads = (messages: Message[]) => {
     const threadMap = new Map<string, Thread>()
-
     messages.forEach(m => {
       const key = `${m.senderId}_${m.platform}`
       if (!threadMap.has(key)) {
@@ -60,6 +62,7 @@ export default function MessagesPage() {
           senderId: m.senderId,
           senderName: m.senderName,
           platform: m.platform,
+          pageId: m.pageId,
           lastMessage: m.message,
           lastTime: m.timestamp,
           unread: !m.replied,
@@ -69,16 +72,13 @@ export default function MessagesPage() {
       }
       const thread = threadMap.get(key)!
       thread.messages.push(m)
-      // Update last message
       if (new Date(m.timestamp) > new Date(thread.lastTime)) {
         thread.lastMessage = m.message
         thread.lastTime = m.timestamp
       }
-      // Update unread
       if (!m.replied) thread.unread = true
       if (m.aiReplied) thread.aiReplied = true
     })
-
     return Array.from(threadMap.values())
       .sort((a, b) => new Date(b.lastTime).getTime() - new Date(a.lastTime).getTime())
   }
@@ -90,8 +90,6 @@ export default function MessagesPage() {
         setAllMessages(data)
         const newThreads = buildThreads(data)
         setThreads(newThreads)
-
-        // Update selected thread
         if (selectedThread) {
           const updated = newThreads.find(t => t.senderId === selectedThread.senderId && t.platform === selectedThread.platform)
           if (updated) setSelectedThread(updated)
@@ -139,7 +137,7 @@ export default function MessagesPage() {
       if (data.reply) {
         setReplyText(data.reply)
         if (selectedThread?.messages[0]?.id) {
-          await logActivity('ai_reply_generated', `AI ले reply generate गर्यो`, selectedThread.messages[0].id, true)
+          await logActivity('ai_reply_generated', 'AI le reply generate garyeo', selectedThread.messages[0].id, true)
         }
       }
     } catch {
@@ -158,7 +156,7 @@ export default function MessagesPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ replied: true, replyText }),
       })
-      await logActivity('human_reply_sent', `${session?.user?.name || 'Staff'} ले reply पठायो`, lastMsg.id, false)
+      await logActivity('human_reply_sent', `${session?.user?.name || 'Staff'} le reply pathayeo`, lastMsg.id, false)
       setReplyText('')
       fetchMessages()
     } finally {
@@ -166,7 +164,42 @@ export default function MessagesPage() {
     }
   }
 
+  const handleHumanHandoff = async () => {
+    if (!selectedThread) return
+    setHandoffSending(true)
+    try {
+      const threadKey = `${selectedThread.senderId}_${selectedThread.platform}`
+
+      // AIConversation resolved = true garne
+      await fetch('/api/messages/handoff', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          senderId: selectedThread.senderId,
+          pageId: selectedThread.pageId || '',
+          staffName: session?.user?.name || 'Staff',
+        })
+      })
+
+      // Activity log
+      const lastMsg = selectedThread.messages[selectedThread.messages.length - 1]
+      await logActivity(
+        'human_handoff',
+        `${session?.user?.name || 'Staff'} le human handoff liyeo - AI band`,
+        lastMsg.id,
+        false
+      )
+
+      setHandoffDone(prev => new Set(prev).add(threadKey))
+      fetchMessages()
+    } finally {
+      setHandoffSending(false)
+    }
+  }
+
   const lastUnrepliedMsg = selectedThread?.messages.find(m => !m.replied)
+  const threadKey = selectedThread ? `${selectedThread.senderId}_${selectedThread.platform}` : ''
+  const isHandedOff = handoffDone.has(threadKey)
 
   return (
     <div>
@@ -176,7 +209,7 @@ export default function MessagesPage() {
       </div>
 
       <div className="flex gap-4 h-[calc(100vh-160px)]">
-        {/* Left — Thread List */}
+        {/* Left - Thread List */}
         <div className="w-80 flex flex-col gap-3">
           <div className="flex gap-1">
             {['All', 'Facebook', 'IG', 'WA'].map(p => (
@@ -195,41 +228,46 @@ export default function MessagesPage() {
             {filteredThreads.length === 0 && (
               <p className="text-gray-500 text-sm text-center mt-8">No messages yet</p>
             )}
-            {filteredThreads.map(thread => (
-              <div
-                key={`${thread.senderId}_${thread.platform}`}
-                onClick={() => { setSelectedThread(thread); setReplyText('') }}
-                className={'p-3 rounded-xl cursor-pointer transition-all border ' +
-                  (selectedThread?.senderId === thread.senderId && selectedThread?.platform === thread.platform
-                    ? 'bg-violet-600/20 border-violet-500/50'
-                    : 'bg-gray-900 border-gray-800 hover:border-gray-600')}
-              >
-                <div className="flex items-center gap-2 mb-1">
-                  <div className={'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ' + (platformStyle[thread.platform] || 'bg-gray-600')}>
-                    {thread.senderName?.charAt(0)?.toUpperCase() || 'U'}
-                  </div>
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <span className="text-white text-sm font-medium truncate">{thread.senderName}</span>
-                      <div className="flex items-center gap-1 flex-shrink-0">
-                        {thread.aiReplied && <span className="text-xs text-violet-400">🤖</span>}
-                        {thread.unread && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
-                      </div>
+            {filteredThreads.map(thread => {
+              const tKey = `${thread.senderId}_${thread.platform}`
+              const tHandedOff = handoffDone.has(tKey)
+              return (
+                <div
+                  key={tKey}
+                  onClick={() => { setSelectedThread(thread); setReplyText('') }}
+                  className={'p-3 rounded-xl cursor-pointer transition-all border ' +
+                    (selectedThread?.senderId === thread.senderId && selectedThread?.platform === thread.platform
+                      ? 'bg-violet-600/20 border-violet-500/50'
+                      : 'bg-gray-900 border-gray-800 hover:border-gray-600')}
+                >
+                  <div className="flex items-center gap-2 mb-1">
+                    <div className={'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ' + (platformStyle[thread.platform] || 'bg-gray-600')}>
+                      {thread.senderName?.charAt(0)?.toUpperCase() || 'U'}
                     </div>
-                    <p className="text-gray-400 text-xs truncate">{thread.lastMessage}</p>
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <span className="text-white text-sm font-medium truncate">{thread.senderName}</span>
+                        <div className="flex items-center gap-1 flex-shrink-0">
+                          {tHandedOff && <span className="text-xs text-green-400">👤</span>}
+                          {!tHandedOff && thread.aiReplied && <span className="text-xs text-violet-400">🤖</span>}
+                          {thread.unread && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
+                        </div>
+                      </div>
+                      <p className="text-gray-400 text-xs truncate">{thread.lastMessage}</p>
+                    </div>
                   </div>
+                  <div className="flex items-center justify-between mt-1">
+                    <span className="text-gray-600 text-xs">{platformLabel[thread.platform] || thread.platform}</span>
+                    <span className="text-gray-600 text-xs">{new Date(thread.lastTime).toLocaleString()}</span>
+                  </div>
+                  <div className="text-gray-600 text-xs mt-0.5">{thread.messages.length} messages</div>
                 </div>
-                <div className="flex items-center justify-between mt-1">
-                  <span className="text-gray-600 text-xs">{platformLabel[thread.platform] || thread.platform}</span>
-                  <span className="text-gray-600 text-xs">{new Date(thread.lastTime).toLocaleString()}</span>
-                </div>
-                <div className="text-gray-600 text-xs mt-0.5">{thread.messages.length} messages</div>
-              </div>
-            ))}
+              )
+            })}
           </div>
         </div>
 
-        {/* Right — Chat View */}
+        {/* Right - Chat View */}
         {selectedThread ? (
           <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex flex-col">
             {/* Header */}
@@ -242,29 +280,48 @@ export default function MessagesPage() {
                 <p className="text-gray-400 text-xs">{platformLabel[selectedThread.platform]} · {selectedThread.messages.length} messages</p>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                {selectedThread.aiReplied && (
+                {isHandedOff && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-green-500/20 text-green-400 border border-green-500/30">👤 Human Mode</span>
+                )}
+                {!isHandedOff && selectedThread.aiReplied && (
                   <span className="text-xs px-2 py-1 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30">🤖 AI</span>
                 )}
                 {selectedThread.unread
                   ? <span className="text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">Pending</span>
                   : <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Replied</span>}
+
+                {/* Human Handoff Button */}
+                {!isHandedOff && selectedThread.aiReplied && (
+                  <button
+                    onClick={handleHumanHandoff}
+                    disabled={handoffSending}
+                    className="text-xs px-3 py-1.5 rounded-xl bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30 font-medium disabled:opacity-50 transition-all"
+                  >
+                    {handoffSending ? 'Taking over...' : '👤 Take Over'}
+                  </button>
+                )}
               </div>
             </div>
 
-            {/* All Messages in Thread */}
+            {/* Handoff Banner */}
+            {isHandedOff && (
+              <div className="mx-4 mt-3 px-4 py-2.5 bg-green-500/10 border border-green-500/20 rounded-xl">
+                <p className="text-green-400 text-xs font-medium">👤 Human mode active — AI auto-reply band cha. Tapai le manually reply garnuhos.</p>
+              </div>
+            )}
+
+            {/* Messages */}
             <div className="flex-1 p-4 overflow-y-auto space-y-3">
               {selectedThread.messages
                 .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
                 .map((m, i) => (
                   <div key={m.id || i}>
-                    {/* Customer message */}
                     <div className="flex justify-start mb-2">
                       <div className="bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-xs">
                         <p className="text-white text-sm">{m.message}</p>
                         <p className="text-gray-500 text-xs mt-1">{new Date(m.timestamp).toLocaleString()}</p>
                       </div>
                     </div>
-                    {/* Reply */}
                     {m.replied && m.replyText && (
                       <div className="flex justify-end">
                         <div className="bg-violet-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-xs">
@@ -281,7 +338,7 @@ export default function MessagesPage() {
 
             {/* Reply Box */}
             <div className="p-4 border-t border-gray-800 space-y-3">
-              {lastUnrepliedMsg && (
+              {lastUnrepliedMsg && !isHandedOff && (
                 <button
                   onClick={() => generateAIReply(lastUnrepliedMsg.message)}
                   disabled={loading}
