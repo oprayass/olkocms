@@ -19,7 +19,7 @@ export async function POST(req: Request) {
     const { businessName, email, phone, planId, billingCycle } = body
 
     const trialEndsAt = new Date()
-    trialEndsAt.setDate(trialEndsAt.getDate() + 14)
+    trialEndsAt.setDate(trialEndsAt.getDate() + 1)
 
     const currentPeriodEnd = new Date()
     if (billingCycle === 'yearly') {
