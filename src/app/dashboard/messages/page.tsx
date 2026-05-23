@@ -25,13 +25,20 @@ export default function MessagesPage() {
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
 
-  useEffect(() => {
+  const fetchMessages = () => {
     fetch('/api/messages')
       .then(r => r.json())
       .then(data => {
         setMessages(data)
-        if (data.length > 0) setSelected(data[0])
+        if (data.length > 0 && !selected) setSelected(data[0])
       })
+  }
+
+  useEffect(() => {
+    fetchMessages()
+    // Auto refresh every 10 seconds
+    const interval = setInterval(fetchMessages, 10000)
+    return () => clearInterval(interval)
   }, [])
 
   const filtered = messages.filter(m => filter === 'All' || m.platform === filter)
@@ -46,7 +53,7 @@ export default function MessagesPage() {
         entityType: 'message',
         entityId,
         performedBy: isAI ? 'AI' : (session?.user?.email || 'unknown'),
-        staffName: isAI ? 'AI Assistant' : (session?.user?.name || session?.user?.email || 'Staff'),
+        staffName: isAI ? 'AI Sales Agent' : (session?.user?.name || 'Staff'),
         isAI,
       })
     })
@@ -101,6 +108,7 @@ export default function MessagesPage() {
       </div>
 
       <div className="flex gap-6 h-[calc(100vh-180px)]">
+        {/* Left List */}
         <div className="w-80 flex flex-col gap-3">
           <div className="flex gap-2">
             {['All', 'facebook', 'IG', 'WA'].map(p => (
@@ -131,7 +139,10 @@ export default function MessagesPage() {
                     {m.platform?.slice(0, 2).toUpperCase()}
                   </div>
                   <span className="text-white text-sm font-medium flex-1 truncate">{m.senderName}</span>
-                  {!m.replied && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
+                  <div className="flex items-center gap-1">
+                    {m.aiReplied && <span className="text-xs text-violet-400">🤖</span>}
+                    {!m.replied && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
+                  </div>
                 </div>
                 <p className="text-gray-400 text-xs truncate">{m.message}</p>
                 <p className="text-gray-600 text-xs mt-1">{new Date(m.timestamp).toLocaleString()}</p>
@@ -140,8 +151,10 @@ export default function MessagesPage() {
           </div>
         </div>
 
+        {/* Right Chat */}
         {selected ? (
           <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex flex-col">
+            {/* Header */}
             <div className="p-4 border-b border-gray-800 flex items-center gap-3">
               <div className={'w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ' + (platformStyle[selected.platform] || 'bg-gray-600')}>
                 {selected.platform?.slice(0, 2).toUpperCase()}
@@ -150,13 +163,17 @@ export default function MessagesPage() {
                 <p className="text-white font-medium">{selected.senderName}</p>
                 <p className="text-gray-400 text-xs">{platformLabel[selected.platform]} · {new Date(selected.timestamp).toLocaleString()}</p>
               </div>
-              <div className="ml-auto">
+              <div className="ml-auto flex items-center gap-2">
+                {selected.aiReplied && (
+                  <span className="text-xs px-2 py-1 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30">🤖 AI</span>
+                )}
                 {selected.replied
                   ? <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Replied</span>
                   : <span className="text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">Pending</span>}
               </div>
             </div>
 
+            {/* Messages */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4">
               <div className="flex justify-start">
                 <div className="bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-sm">
@@ -168,12 +185,15 @@ export default function MessagesPage() {
                 <div className="flex justify-end">
                   <div className="bg-violet-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-sm">
                     <p className="text-white text-sm">{selected.replyText}</p>
-                    <p className="text-violet-200 text-xs mt-1">{session?.user?.name || 'Staff'}</p>
+                    <p className="text-violet-200 text-xs mt-1">
+                      {selected.aiReplied ? '🤖 AI Sales Agent' : (session?.user?.name || 'Staff')}
+                    </p>
                   </div>
                 </div>
               )}
             </div>
 
+            {/* Reply Box */}
             <div className="p-4 border-t border-gray-800 space-y-3">
               {!selected.replied && (
                 <button
@@ -181,7 +201,7 @@ export default function MessagesPage() {
                   disabled={loading}
                   className="w-full py-2 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-600/30 disabled:opacity-50"
                 >
-                  {loading ? 'Generating...' : 'Generate AI Reply'}
+                  {loading ? 'Generating...' : '🤖 Generate AI Reply'}
                 </button>
               )}
               {!selected.replied && (
@@ -203,7 +223,9 @@ export default function MessagesPage() {
                 </div>
               )}
               {selected.replied && (
-                <p className="text-center text-gray-600 text-xs">Replied</p>
+                <p className="text-center text-gray-600 text-xs">
+                  {selected.aiReplied ? '🤖 AI Sales Agent ले reply गरिसक्यो' : `👤 ${session?.user?.name || 'Staff'} ले reply गरिसक्यो`}
+                </p>
               )}
             </div>
           </div>
