@@ -13,6 +13,7 @@ const nav = [
   { label: 'Activity', href: '/dashboard/activity', icon: '📋' },
   { label: 'Courier', href: '/dashboard/courier', icon: '🚚' },
   { label: 'Reports', href: '/dashboard/reports', icon: '📈' },
+  { label: 'Content', href: '/dashboard/content', icon: '✍️' },
   { label: 'Subscriptions', href: '/dashboard/subscriptions', icon: '💳' },
   { label: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
 ]
