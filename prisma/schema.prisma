@@ -60,7 +60,9 @@ model Order {
   courier      String?
   trackingNo   String?
   platform     String?
-  isSameDay    Boolean  @default(false)
+  isSameDay         Boolean  @default(false)
+  isCancelledAtDoor Boolean  @default(false)
+  isExchange        Boolean  @default(false)
   staffId      String?
   staff        User?    @relation(fields: [staffId], references: [id])
   createdAt    DateTime @default(now())
