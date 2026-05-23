@@ -9,7 +9,7 @@ const statusColors: Record<string,string> = {
   Cancelled: 'bg-red-500/20 text-red-400 border border-red-500/30',
 }
 
-const emptyForm = { orderId:'', customerName:'', phone:'', address:'', product:'', quantity:'1', price:'', status:'Pending', courier:'', trackingNo:'', platform:'FB', isSameDay: false }
+const emptyForm = { orderId:'', customerName:'', phone:'', address:'', product:'', quantity:'1', price:'', status:'Pending', courier:'', trackingNo:'', platform:'FB', isSameDay: false, isCancelledAtDoor: false, isExchange: false }
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
@@ -32,6 +32,11 @@ export default function OrdersPage() {
     setOrders(orders.map(o => o.id === id ? {...o, status} : o))
   }
 
+  const toggleFlag = async (id: string, field: string, value: boolean) => {
+    await fetch('/api/orders/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ [field]: value }) })
+    setOrders(orders.map(o => o.id === id ? {...o, [field]: value} : o))
+  }
+
   const saveOrder = async () => {
     if (!form.customerName || !form.phone || !form.product || !form.price) return
     setSaving(true)
@@ -46,7 +51,7 @@ export default function OrdersPage() {
 
   const filtered = orders.filter(o => {
     const matchSearch = o.customerName?.toLowerCase().includes(search.toLowerCase()) || o.orderId?.includes(search) || o.phone?.includes(search)
-    const matchFilter = filter === 'All' || o.status === filter
+    const matchFilter = filter === 'All' || o.status === filter || (filter === 'SameDay' && o.isSameDay) || (filter === 'Exchange' && o.isExchange) || (filter === 'CancelledDoor' && o.isCancelledAtDoor)
     return matchSearch && matchFilter
   })
 
@@ -60,6 +65,21 @@ export default function OrdersPage() {
         <button onClick={() => setShowForm(!showForm)} className='bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all'>
           {showForm ? 'X Cancel' : '+ New Order'}
         </button>
+      </div>
+
+      {/* Quick Stats */}
+      <div className='grid grid-cols-4 gap-3 mb-5'>
+        {[
+          { label: 'Total', value: orders.length, color: 'from-violet-600 to-violet-800' },
+          { label: 'Same Day', value: orders.filter(o=>o.isSameDay).length, color: 'from-orange-500 to-orange-700' },
+          { label: 'Exchange', value: orders.filter(o=>o.isExchange).length, color: 'from-blue-500 to-blue-700' },
+          { label: 'Cancelled at Door', value: orders.filter(o=>o.isCancelledAtDoor).length, color: 'from-red-500 to-red-700' },
+        ].map(s => (
+          <div key={s.label} className={'bg-gradient-to-br '+s.color+' rounded-2xl p-3 text-center'}>
+            <div className='text-2xl font-bold text-white'>{s.value}</div>
+            <div className='text-xs text-white/70 mt-1'>{s.label}</div>
+          </div>
+        ))}
       </div>
 
       {showForm && (
@@ -106,11 +126,18 @@ export default function OrdersPage() {
                 {['Pending','Confirmed','Processing','Delivered','Cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
-            <div className='flex items-center gap-3 col-span-3 mt-1'>
+            <div className='flex items-center gap-6 col-span-3 mt-1'>
               <label className='flex items-center gap-2 cursor-pointer'>
                 <input type='checkbox' checked={form.isSameDay} onChange={e=>setForm({...form,isSameDay:e.target.checked})} className='w-4 h-4 accent-orange-500' />
-                <span className='text-sm text-white'>Same Day Delivery</span>
-                <span className='text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30'>Ktm Only</span>
+                <span className='text-sm text-white'>⚡ Same Day Delivery</span>
+              </label>
+              <label className='flex items-center gap-2 cursor-pointer'>
+                <input type='checkbox' checked={form.isCancelledAtDoor} onChange={e=>setForm({...form,isCancelledAtDoor:e.target.checked})} className='w-4 h-4 accent-red-500' />
+                <span className='text-sm text-white'>🚪 Cancelled at Door</span>
+              </label>
+              <label className='flex items-center gap-2 cursor-pointer'>
+                <input type='checkbox' checked={form.isExchange} onChange={e=>setForm({...form,isExchange:e.target.checked})} className='w-4 h-4 accent-blue-500' />
+                <span className='text-sm text-white'>🔄 Exchange Order</span>
               </label>
             </div>
           </div>
@@ -125,8 +152,10 @@ export default function OrdersPage() {
 
       <div className='flex gap-3 mb-4 flex-wrap'>
         <input type='text' placeholder='Search by name, phone, order ID...' value={search} onChange={e=>setSearch(e.target.value)} className='bg-gray-900 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-2 text-sm flex-1 min-w-48 outline-none focus:border-violet-500' />
-        {['All','Pending','Confirmed','Processing','Delivered','Cancelled'].map(s => (
-          <button key={s} onClick={()=>setFilter(s)} className={'px-3 py-2 rounded-xl text-xs font-medium transition-all '+(filter===s?'bg-violet-600 text-white':'bg-gray-900 text-gray-400 border border-gray-700')}>{s}</button>
+        {['All','Pending','Confirmed','Processing','Delivered','Cancelled','SameDay','Exchange','CancelledDoor'].map(s => (
+          <button key={s} onClick={()=>setFilter(s)} className={'px-3 py-2 rounded-xl text-xs font-medium transition-all '+(filter===s?'bg-violet-600 text-white':'bg-gray-900 text-gray-400 border border-gray-700')}>
+            {s === 'SameDay' ? '⚡ Same Day' : s === 'Exchange' ? '🔄 Exchange' : s === 'CancelledDoor' ? '🚪 At Door' : s}
+          </button>
         ))}
       </div>
 
@@ -142,8 +171,8 @@ export default function OrdersPage() {
                 <th className='text-left text-gray-400 font-medium px-4 py-3'>Product</th>
                 <th className='text-left text-gray-400 font-medium px-4 py-3'>Amount</th>
                 <th className='text-left text-gray-400 font-medium px-4 py-3'>Status</th>
+                <th className='text-left text-gray-400 font-medium px-4 py-3'>Flags</th>
                 <th className='text-left text-gray-400 font-medium px-4 py-3'>Courier</th>
-                <th className='text-left text-gray-400 font-medium px-4 py-3'>Platform</th>
                 <th className='text-left text-gray-400 font-medium px-4 py-3'>Update</th>
               </tr>
             </thead>
@@ -151,20 +180,30 @@ export default function OrdersPage() {
               {filtered.map(o => (
                 <tr key={o.id} className='border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors'>
                   <td className='px-4 py-3'>
-                    <div className='flex items-center gap-2 flex-wrap'>
-                      <p className='text-white font-medium'>{o.orderId}</p>
-                      {o.isSameDay && (
-                        <span className='text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-medium'>⚡ Same Day</span>
-                      )}
-                    </div>
+                    <p className='text-white font-medium'>{o.orderId}</p>
                     <p className='text-gray-500 text-xs'>{new Date(o.createdAt).toLocaleDateString()}</p>
                   </td>
                   <td className='px-4 py-3'><p className='text-white'>{o.customerName}</p><p className='text-gray-400 text-xs'>{o.phone}</p></td>
                   <td className='px-4 py-3'><p className='text-white'>{o.product}</p><p className='text-gray-400 text-xs'>Qty: {o.quantity}</p></td>
                   <td className='px-4 py-3 text-white'>Rs {o.price?.toLocaleString()}</td>
                   <td className='px-4 py-3'><span className={'text-xs px-2 py-1 rounded-full '+(statusColors[o.status]||'')}>{o.status}</span></td>
+                  <td className='px-4 py-3'>
+                    <div className='flex flex-col gap-1'>
+                      <label className='flex items-center gap-1.5 cursor-pointer'>
+                        <input type='checkbox' checked={o.isSameDay||false} onChange={e=>toggleFlag(o.id,'isSameDay',e.target.checked)} className='w-3 h-3 accent-orange-500' />
+                        <span className='text-xs text-gray-400'>⚡ Same Day</span>
+                      </label>
+                      <label className='flex items-center gap-1.5 cursor-pointer'>
+                        <input type='checkbox' checked={o.isCancelledAtDoor||false} onChange={e=>toggleFlag(o.id,'isCancelledAtDoor',e.target.checked)} className='w-3 h-3 accent-red-500' />
+                        <span className='text-xs text-gray-400'>🚪 At Door</span>
+                      </label>
+                      <label className='flex items-center gap-1.5 cursor-pointer'>
+                        <input type='checkbox' checked={o.isExchange||false} onChange={e=>toggleFlag(o.id,'isExchange',e.target.checked)} className='w-3 h-3 accent-blue-500' />
+                        <span className='text-xs text-gray-400'>🔄 Exchange</span>
+                      </label>
+                    </div>
+                  </td>
                   <td className='px-4 py-3'><p className='text-white text-xs'>{o.courier||'-'}</p><p className='text-gray-400 text-xs'>{o.trackingNo||''}</p></td>
-                  <td className='px-4 py-3'><span className='text-xs px-2 py-1 rounded-full bg-gray-700 text-gray-300'>{o.platform||'-'}</span></td>
                   <td className='px-4 py-3'>
                     <select value={o.status} onChange={e=>updateStatus(o.id,e.target.value)} className='bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 text-xs outline-none'>
                       {['Pending','Confirmed','Processing','Delivered','Cancelled'].map(s=>(<option key={s} value={s}>{s}</option>))}
@@ -180,7 +219,9 @@ export default function OrdersPage() {
       <div className='mt-4 flex gap-4 text-sm text-gray-400'>
         <span>Total: <span className='text-white font-medium'>{filtered.length}</span> orders</span>
         <span>Revenue: <span className='text-white font-medium'>Rs {filtered.reduce((a,o)=>a+(o.price*o.quantity),0).toLocaleString()}</span></span>
-        <span>Same Day: <span className='text-orange-400 font-medium'>{filtered.filter(o=>o.isSameDay).length}</span> orders</span>
+        <span>Same Day: <span className='text-orange-400 font-medium'>{filtered.filter(o=>o.isSameDay).length}</span></span>
+        <span>Exchange: <span className='text-blue-400 font-medium'>{filtered.filter(o=>o.isExchange).length}</span></span>
+        <span>At Door: <span className='text-red-400 font-medium'>{filtered.filter(o=>o.isCancelledAtDoor).length}</span></span>
       </div>
     </div>
   )
