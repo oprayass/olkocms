@@ -63,37 +63,30 @@ export default function MessagesPage() {
       const data = await response.json()
       if (data.reply) {
         setReplyText(data.reply)
-        await logActivity(
-          'ai_reply_generated',
-          `AI ले "${msg.slice(0, 50)}..." को reply generate गर्यो`,
-          selected?.id,
-          true
-        )
-      } else {
-        setReplyText('Error: ' + (data.error || 'Unknown error'))
+        await logActivity('ai_reply_generated', `AI ले reply generate गर्यो`, selected?.id, true)
       }
     } catch (err) {
-      setReplyText('Error generating reply. Please try again.')
+      setReplyText('Error generating reply.')
     }
     setLoading(false)
   }
 
-  const sendReply = async (id: string, isAI: boolean = false) => {
+  const sendReply = async (id: string) => {
     setSending(true)
     try {
       await fetch(`/api/messages/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ replied: true, replyText, aiReplied: isAI }),
+        body: JSON.stringify({ replied: true, replyText }),
       })
       await logActivity(
-        isAI ? 'ai_reply_sent' : 'human_reply_sent',
-        `${isAI ? 'AI' : (session?.user?.name || 'Staff')} ले "${selected?.senderName}" लाई reply पठायो: "${replyText.slice(0, 50)}..."`,
+        'human_reply_sent',
+        `${session?.user?.name || 'Staff'} ले reply पठायो`,
         id,
-        isAI
+        false
       )
-      setMessages(messages.map(m => m.id === id ? { ...m, replied: true, replyText, aiReplied: isAI } : m))
-      setSelected((prev: any) => ({ ...prev, replied: true, replyText, aiReplied: isAI }))
+      setMessages(messages.map(m => m.id === id ? { ...m, replied: true, replyText } : m))
+      setSelected((prev: any) => ({ ...prev, replied: true, replyText }))
       setReplyText('')
     } finally {
       setSending(false)
@@ -108,7 +101,6 @@ export default function MessagesPage() {
       </div>
 
       <div className="flex gap-6 h-[calc(100vh-180px)]">
-        {/* Left — Message List */}
         <div className="w-80 flex flex-col gap-3">
           <div className="flex gap-2">
             {['All', 'facebook', 'IG', 'WA'].map(p => (
@@ -139,22 +131,17 @@ export default function MessagesPage() {
                     {m.platform?.slice(0, 2).toUpperCase()}
                   </div>
                   <span className="text-white text-sm font-medium flex-1 truncate">{m.senderName}</span>
-                  {!m.replied && <span className="w-2 h-2 rounded-full bg-violet-500 flex-shrink-0"></span>}
+                  {!m.replied && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
                 </div>
                 <p className="text-gray-400 text-xs truncate">{m.message}</p>
-                <div className="flex items-center justify-between mt-1">
-                  <p className="text-gray-600 text-xs">{new Date(m.timestamp).toLocaleString()}</p>
-                  {m.aiReplied && <span className="text-xs text-violet-400">🤖 AI</span>}
-                </div>
+                <p className="text-gray-600 text-xs mt-1">{new Date(m.timestamp).toLocaleString()}</p>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Right — Chat View */}
         {selected ? (
           <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex flex-col">
-            {/* Header */}
             <div className="p-4 border-b border-gray-800 flex items-center gap-3">
               <div className={'w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ' + (platformStyle[selected.platform] || 'bg-gray-600')}>
                 {selected.platform?.slice(0, 2).toUpperCase()}
@@ -163,15 +150,13 @@ export default function MessagesPage() {
                 <p className="text-white font-medium">{selected.senderName}</p>
                 <p className="text-gray-400 text-xs">{platformLabel[selected.platform]} · {new Date(selected.timestamp).toLocaleString()}</p>
               </div>
-              <div className="ml-auto flex items-center gap-2">
-                {selected.aiReplied && <span className="text-xs px-2 py-1 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30">🤖 AI Reply</span>}
+              <div className="ml-auto">
                 {selected.replied
                   ? <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Replied</span>
                   : <span className="text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">Pending</span>}
               </div>
             </div>
 
-            {/* Messages */}
             <div className="flex-1 p-4 overflow-y-auto space-y-4">
               <div className="flex justify-start">
                 <div className="bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-sm">
@@ -183,23 +168,20 @@ export default function MessagesPage() {
                 <div className="flex justify-end">
                   <div className="bg-violet-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-sm">
                     <p className="text-white text-sm">{selected.replyText}</p>
-                    <p className="text-violet-200 text-xs mt-1">
-                      {selected.aiReplied ? '🤖 AI Assistant' : `👤 ${session?.user?.name || 'Staff'}`} · Just now
-                    </p>
+                    <p className="text-violet-200 text-xs mt-1">{session?.user?.name || 'Staff'}</p>
                   </div>
                 </div>
               )}
             </div>
 
-            {/* Reply Box */}
             <div className="p-4 border-t border-gray-800 space-y-3">
               {!selected.replied && (
                 <button
                   onClick={() => generateAIReply(selected.message)}
                   disabled={loading}
-                  className="w-full py-2 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-600/30 transition-all disabled:opacity-50"
+                  className="w-full py-2 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-600/30 disabled:opacity-50"
                 >
-                  {loading ? '🤖 Generating...' : '🤖 Generate AI Reply'}
+                  {loading ? 'Generating...' : 'Generate AI Reply'}
                 </button>
               )}
               {!selected.replied && (
@@ -211,23 +193,26 @@ export default function MessagesPage() {
                     rows={2}
                     className="flex-1 bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none"
                   />
-                  <div className="flex flex-col gap-1">
-                    <button
-                      onClick={() => sendReply(selected.id, replyText === selected.replyText)}
-                      disabled={!replyText || sending}
-                      className="px-4 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-medium transition-all"
-                    >
-                      {sending ? '...' : 'Send'}
-                    </button>
-                  </div>
+                  <button
+                    onClick={() => sendReply(selected.id)}
+                    disabled={!replyText || sending}
+                    className="px-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-medium"
+                  >
+                    {sending ? '...' : 'Send'}
+                  </button>
                 </div>
               )}
               {selected.replied && (
-                <p className="text-center text-gray-600 text-xs">
-                  {selected.aiReplied ? '🤖 AI ले reply गरिसक्यो' : `👤 ${session?.user?.name || 'Staff'} ले reply गरिसक्यो`}
-                </p>
+                <p className="text-center text-gray-600 text-xs">Replied</p>
               )}
             </div>
           </div>
         ) : (
-          <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex items-center justify-center"></div>
+          <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex items-center justify-center">
+            <p className="text-gray-500">Select a message to view</p>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
