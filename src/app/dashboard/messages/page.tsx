@@ -16,32 +16,100 @@ const platformLabel: Record<string, string> = {
   WA: 'WhatsApp',
 }
 
+interface Message {
+  id: string
+  senderId: string
+  senderName: string
+  platform: string
+  message: string
+  timestamp: string
+  replied: boolean
+  replyText?: string
+  aiReplied?: boolean
+  pageId?: string
+}
+
+interface Thread {
+  senderId: string
+  senderName: string
+  platform: string
+  lastMessage: string
+  lastTime: string
+  unread: boolean
+  aiReplied: boolean
+  messages: Message[]
+}
+
 export default function MessagesPage() {
   const { data: session } = useSession()
-  const [messages, setMessages] = useState<any[]>([])
-  const [selected, setSelected] = useState<any>(null)
+  const [allMessages, setAllMessages] = useState<Message[]>([])
+  const [threads, setThreads] = useState<Thread[]>([])
+  const [selectedThread, setSelectedThread] = useState<Thread | null>(null)
   const [filter, setFilter] = useState('All')
   const [replyText, setReplyText] = useState('')
   const [loading, setLoading] = useState(false)
   const [sending, setSending] = useState(false)
 
+  const buildThreads = (messages: Message[]) => {
+    const threadMap = new Map<string, Thread>()
+
+    messages.forEach(m => {
+      const key = `${m.senderId}_${m.platform}`
+      if (!threadMap.has(key)) {
+        threadMap.set(key, {
+          senderId: m.senderId,
+          senderName: m.senderName,
+          platform: m.platform,
+          lastMessage: m.message,
+          lastTime: m.timestamp,
+          unread: !m.replied,
+          aiReplied: m.aiReplied || false,
+          messages: []
+        })
+      }
+      const thread = threadMap.get(key)!
+      thread.messages.push(m)
+      // Update last message
+      if (new Date(m.timestamp) > new Date(thread.lastTime)) {
+        thread.lastMessage = m.message
+        thread.lastTime = m.timestamp
+      }
+      // Update unread
+      if (!m.replied) thread.unread = true
+      if (m.aiReplied) thread.aiReplied = true
+    })
+
+    return Array.from(threadMap.values())
+      .sort((a, b) => new Date(b.lastTime).getTime() - new Date(a.lastTime).getTime())
+  }
+
   const fetchMessages = () => {
     fetch('/api/messages')
       .then(r => r.json())
       .then(data => {
-        setMessages(data)
-        if (data.length > 0 && !selected) setSelected(data[0])
+        setAllMessages(data)
+        const newThreads = buildThreads(data)
+        setThreads(newThreads)
+
+        // Update selected thread
+        if (selectedThread) {
+          const updated = newThreads.find(t => t.senderId === selectedThread.senderId && t.platform === selectedThread.platform)
+          if (updated) setSelectedThread(updated)
+        } else if (newThreads.length > 0) {
+          setSelectedThread(newThreads[0])
+        }
       })
   }
 
   useEffect(() => {
     fetchMessages()
-    // Auto refresh every 10 seconds
-    const interval = setInterval(fetchMessages, 10000)
+    const interval = setInterval(fetchMessages, 8000)
     return () => clearInterval(interval)
   }, [])
 
-  const filtered = messages.filter(m => filter === 'All' || m.platform === filter)
+  const filteredThreads = threads.filter(t =>
+    filter === 'All' || t.platform === filter.toLowerCase() || t.platform === filter
+  )
 
   const logActivity = async (action: string, description: string, entityId: string, isAI: boolean) => {
     await fetch('/api/activity', {
@@ -70,168 +138,180 @@ export default function MessagesPage() {
       const data = await response.json()
       if (data.reply) {
         setReplyText(data.reply)
-        await logActivity('ai_reply_generated', `AI ले reply generate गर्यो`, selected?.id, true)
+        if (selectedThread?.messages[0]?.id) {
+          await logActivity('ai_reply_generated', `AI ले reply generate गर्यो`, selectedThread.messages[0].id, true)
+        }
       }
-    } catch (err) {
+    } catch {
       setReplyText('Error generating reply.')
     }
     setLoading(false)
   }
 
-  const sendReply = async (id: string) => {
+  const sendReply = async () => {
+    if (!selectedThread || !replyText) return
     setSending(true)
     try {
-      await fetch(`/api/messages/${id}`, {
+      const lastMsg = selectedThread.messages[selectedThread.messages.length - 1]
+      await fetch(`/api/messages/${lastMsg.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ replied: true, replyText }),
       })
-      await logActivity(
-        'human_reply_sent',
-        `${session?.user?.name || 'Staff'} ले reply पठायो`,
-        id,
-        false
-      )
-      setMessages(messages.map(m => m.id === id ? { ...m, replied: true, replyText } : m))
-      setSelected((prev: any) => ({ ...prev, replied: true, replyText }))
+      await logActivity('human_reply_sent', `${session?.user?.name || 'Staff'} ले reply पठायो`, lastMsg.id, false)
       setReplyText('')
+      fetchMessages()
     } finally {
       setSending(false)
     }
   }
 
+  const lastUnrepliedMsg = selectedThread?.messages.find(m => !m.replied)
+
   return (
     <div>
-      <div className="mb-6">
+      <div className="mb-4">
         <h1 className="text-2xl font-bold text-white">Messages</h1>
         <p className="text-gray-400 mt-1">Manage Facebook, Instagram and WhatsApp messages</p>
       </div>
 
-      <div className="flex gap-6 h-[calc(100vh-180px)]">
-        {/* Left List */}
+      <div className="flex gap-4 h-[calc(100vh-160px)]">
+        {/* Left — Thread List */}
         <div className="w-80 flex flex-col gap-3">
-          <div className="flex gap-2">
-            {['All', 'facebook', 'IG', 'WA'].map(p => (
+          <div className="flex gap-1">
+            {['All', 'Facebook', 'IG', 'WA'].map(p => (
               <button
                 key={p}
                 onClick={() => setFilter(p)}
                 className={'flex-1 py-1.5 rounded-lg text-xs font-medium transition-all ' +
-                  (filter === p ? 'bg-violet-600 text-white' : 'bg-gray-900 text-gray-400 border border-gray-700 hover:border-gray-500')}
+                  (filter === p ? 'bg-violet-600 text-white' : 'bg-gray-900 text-gray-400 border border-gray-700')}
               >
-                {p === 'All' ? 'All' : platformLabel[p]}
+                {p}
               </button>
             ))}
           </div>
 
           <div className="flex-1 overflow-y-auto space-y-2">
-            {filtered.length === 0 && (
+            {filteredThreads.length === 0 && (
               <p className="text-gray-500 text-sm text-center mt-8">No messages yet</p>
             )}
-            {filtered.map(m => (
+            {filteredThreads.map(thread => (
               <div
-                key={m.id}
-                onClick={() => { setSelected(m); setReplyText('') }}
+                key={`${thread.senderId}_${thread.platform}`}
+                onClick={() => { setSelectedThread(thread); setReplyText('') }}
                 className={'p-3 rounded-xl cursor-pointer transition-all border ' +
-                  (selected?.id === m.id ? 'bg-violet-600/20 border-violet-500/50' : 'bg-gray-900 border-gray-800 hover:border-gray-600')}
+                  (selectedThread?.senderId === thread.senderId && selectedThread?.platform === thread.platform
+                    ? 'bg-violet-600/20 border-violet-500/50'
+                    : 'bg-gray-900 border-gray-800 hover:border-gray-600')}
               >
                 <div className="flex items-center gap-2 mb-1">
-                  <div className={'w-7 h-7 rounded-full flex items-center justify-center text-white text-xs font-bold ' + (platformStyle[m.platform] || 'bg-gray-600')}>
-                    {m.platform?.slice(0, 2).toUpperCase()}
+                  <div className={'w-8 h-8 rounded-full flex items-center justify-center text-white text-xs font-bold flex-shrink-0 ' + (platformStyle[thread.platform] || 'bg-gray-600')}>
+                    {thread.senderName?.charAt(0)?.toUpperCase() || 'U'}
                   </div>
-                  <span className="text-white text-sm font-medium flex-1 truncate">{m.senderName}</span>
-                  <div className="flex items-center gap-1">
-                    {m.aiReplied && <span className="text-xs text-violet-400">🤖</span>}
-                    {!m.replied && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <span className="text-white text-sm font-medium truncate">{thread.senderName}</span>
+                      <div className="flex items-center gap-1 flex-shrink-0">
+                        {thread.aiReplied && <span className="text-xs text-violet-400">🤖</span>}
+                        {thread.unread && <span className="w-2 h-2 rounded-full bg-violet-500"></span>}
+                      </div>
+                    </div>
+                    <p className="text-gray-400 text-xs truncate">{thread.lastMessage}</p>
                   </div>
                 </div>
-                <p className="text-gray-400 text-xs truncate">{m.message}</p>
-                <p className="text-gray-600 text-xs mt-1">{new Date(m.timestamp).toLocaleString()}</p>
+                <div className="flex items-center justify-between mt-1">
+                  <span className="text-gray-600 text-xs">{platformLabel[thread.platform] || thread.platform}</span>
+                  <span className="text-gray-600 text-xs">{new Date(thread.lastTime).toLocaleString()}</span>
+                </div>
+                <div className="text-gray-600 text-xs mt-0.5">{thread.messages.length} messages</div>
               </div>
             ))}
           </div>
         </div>
 
-        {/* Right Chat */}
-        {selected ? (
+        {/* Right — Chat View */}
+        {selectedThread ? (
           <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex flex-col">
             {/* Header */}
             <div className="p-4 border-b border-gray-800 flex items-center gap-3">
-              <div className={'w-9 h-9 rounded-full flex items-center justify-center text-white text-xs font-bold ' + (platformStyle[selected.platform] || 'bg-gray-600')}>
-                {selected.platform?.slice(0, 2).toUpperCase()}
+              <div className={'w-10 h-10 rounded-full flex items-center justify-center text-white font-bold ' + (platformStyle[selectedThread.platform] || 'bg-gray-600')}>
+                {selectedThread.senderName?.charAt(0)?.toUpperCase() || 'U'}
               </div>
               <div>
-                <p className="text-white font-medium">{selected.senderName}</p>
-                <p className="text-gray-400 text-xs">{platformLabel[selected.platform]} · {new Date(selected.timestamp).toLocaleString()}</p>
+                <p className="text-white font-medium">{selectedThread.senderName}</p>
+                <p className="text-gray-400 text-xs">{platformLabel[selectedThread.platform]} · {selectedThread.messages.length} messages</p>
               </div>
               <div className="ml-auto flex items-center gap-2">
-                {selected.aiReplied && (
+                {selectedThread.aiReplied && (
                   <span className="text-xs px-2 py-1 rounded-full bg-violet-500/20 text-violet-400 border border-violet-500/30">🤖 AI</span>
                 )}
-                {selected.replied
-                  ? <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Replied</span>
-                  : <span className="text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">Pending</span>}
+                {selectedThread.unread
+                  ? <span className="text-xs px-2 py-1 rounded-full bg-amber-500/20 text-amber-400 border border-amber-500/30">Pending</span>
+                  : <span className="text-xs px-2 py-1 rounded-full bg-emerald-500/20 text-emerald-400 border border-emerald-500/30">Replied</span>}
               </div>
             </div>
 
-            {/* Messages */}
-            <div className="flex-1 p-4 overflow-y-auto space-y-4">
-              <div className="flex justify-start">
-                <div className="bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-sm">
-                  <p className="text-white text-sm">{selected.message}</p>
-                  <p className="text-gray-500 text-xs mt-1">{new Date(selected.timestamp).toLocaleString()}</p>
-                </div>
-              </div>
-              {selected.replied && selected.replyText && (
-                <div className="flex justify-end">
-                  <div className="bg-violet-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-sm">
-                    <p className="text-white text-sm">{selected.replyText}</p>
-                    <p className="text-violet-200 text-xs mt-1">
-                      {selected.aiReplied ? '🤖 AI Sales Agent' : (session?.user?.name || 'Staff')}
-                    </p>
+            {/* All Messages in Thread */}
+            <div className="flex-1 p-4 overflow-y-auto space-y-3">
+              {selectedThread.messages
+                .sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                .map((m, i) => (
+                  <div key={m.id || i}>
+                    {/* Customer message */}
+                    <div className="flex justify-start mb-2">
+                      <div className="bg-gray-800 rounded-2xl rounded-tl-sm px-4 py-2.5 max-w-xs">
+                        <p className="text-white text-sm">{m.message}</p>
+                        <p className="text-gray-500 text-xs mt-1">{new Date(m.timestamp).toLocaleString()}</p>
+                      </div>
+                    </div>
+                    {/* Reply */}
+                    {m.replied && m.replyText && (
+                      <div className="flex justify-end">
+                        <div className="bg-violet-600 rounded-2xl rounded-tr-sm px-4 py-2.5 max-w-xs">
+                          <p className="text-white text-sm">{m.replyText}</p>
+                          <p className="text-violet-200 text-xs mt-1">
+                            {m.aiReplied ? '🤖 AI Sales Agent' : `👤 ${session?.user?.name || 'Staff'}`}
+                          </p>
+                        </div>
+                      </div>
+                    )}
                   </div>
-                </div>
-              )}
+                ))}
             </div>
 
             {/* Reply Box */}
             <div className="p-4 border-t border-gray-800 space-y-3">
-              {!selected.replied && (
+              {lastUnrepliedMsg && (
                 <button
-                  onClick={() => generateAIReply(selected.message)}
+                  onClick={() => generateAIReply(lastUnrepliedMsg.message)}
                   disabled={loading}
                   className="w-full py-2 rounded-xl bg-violet-600/20 border border-violet-500/30 text-violet-400 text-sm font-medium hover:bg-violet-600/30 disabled:opacity-50"
                 >
                   {loading ? 'Generating...' : '🤖 Generate AI Reply'}
                 </button>
               )}
-              {!selected.replied && (
-                <div className="flex gap-2">
-                  <textarea
-                    value={replyText}
-                    onChange={e => setReplyText(e.target.value)}
-                    placeholder="Type your reply..."
-                    rows={2}
-                    className="flex-1 bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none"
-                  />
-                  <button
-                    onClick={() => sendReply(selected.id)}
-                    disabled={!replyText || sending}
-                    className="px-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-medium"
-                  >
-                    {sending ? '...' : 'Send'}
-                  </button>
-                </div>
-              )}
-              {selected.replied && (
-                <p className="text-center text-gray-600 text-xs">
-                  {selected.aiReplied ? '🤖 AI Sales Agent ले reply गरिसक्यो' : `👤 ${session?.user?.name || 'Staff'} ले reply गरिसक्यो`}
-                </p>
-              )}
+              <div className="flex gap-2">
+                <textarea
+                  value={replyText}
+                  onChange={e => setReplyText(e.target.value)}
+                  placeholder={selectedThread.unread ? "Type your reply..." : "Conversation replied ✓"}
+                  rows={2}
+                  disabled={!selectedThread.unread}
+                  className="flex-1 bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none disabled:opacity-50"
+                />
+                <button
+                  onClick={sendReply}
+                  disabled={!replyText || sending || !selectedThread.unread}
+                  className="px-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-medium"
+                >
+                  {sending ? '...' : 'Send'}
+                </button>
+              </div>
             </div>
           </div>
         ) : (
           <div className="flex-1 bg-gray-900 rounded-2xl border border-gray-800 flex items-center justify-center">
-            <p className="text-gray-500">Select a message to view</p>
+            <p className="text-gray-500">Select a conversation</p>
           </div>
         )}
       </div>
