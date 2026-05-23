@@ -4,25 +4,37 @@ export const POST = async (req: Request) => {
   try {
     const body = await req.json();
     console.log('Facebook webhook received:', JSON.stringify(body));
+
     if (body.object === 'page') {
       for (const entry of body.entry) {
         const pageId = entry.id;
+
         if (entry.messaging) {
           for (const event of entry.messaging) {
             if (event.message && !event.message.is_echo) {
-              await prisma.message.create({ data: { platform: 'facebook', senderId: event.sender.id, senderName: event.sender.id, pageId: pageId, message: event.message.text ?? '[media]', timestamp: new Date(event.timestamp), status: 'new' } });
-            }
-          }
-        }
-        if (entry.changes) {
-          for (const change of entry.changes) {
-            if (change.field === 'feed' && change.value?.message) {
-              await prisma.message.create({ data: { platform: 'facebook', senderId: change.value.from?.id ?? 'unknown', senderName: change.value.from?.name ?? 'Unknown', pageId: pageId, message: change.value.message, timestamp: new Date(), status: 'new' } });
+              console.log('Saving message from:', event.sender.id);
+              try {
+                await prisma.message.create({
+                  data: {
+                    platform: 'facebook',
+                    senderId: event.sender.id,
+                    senderName: event.sender.id,
+                    pageId: pageId,
+                    message: event.message.text ?? '[media]',
+                    timestamp: new Date(event.timestamp),
+                    status: 'new',
+                  },
+                });
+                console.log('Message saved successfully!');
+              } catch (dbErr) {
+                console.error('DB save error:', dbErr);
+              }
             }
           }
         }
       }
     }
+
     return new Response('EVENT_RECEIVED', { status: 200 });
   } catch (err) {
     console.error('Webhook error:', err);
