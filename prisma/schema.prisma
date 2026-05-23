@@ -7,6 +7,7 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// =================== AUTH ===================
 model User {
   id        String    @id @default(cuid())
   name      String?
@@ -19,6 +20,38 @@ model User {
   messages  Message[]
 }
 
+// =================== STAFF ===================
+model Staff {
+  id          String   @id @default(cuid())
+  name        String
+  email       String   @unique
+  phone       String?
+  role        String   @default("Sales")
+  status      String   @default("Active")
+  password    String?
+  joinDate    String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  // Permissions
+  canViewDashboard    Boolean @default(true)
+  canViewOrders       Boolean @default(true)
+  canConfirmOrders    Boolean @default(false)
+  canViewMessages     Boolean @default(true)
+  canReplyMessages    Boolean @default(true)
+  canViewStaff        Boolean @default(false)
+  canManageStaff      Boolean @default(false)
+  canViewCourier      Boolean @default(false)
+  canManageCourier    Boolean @default(false)
+  canViewReports      Boolean @default(false)
+  canViewPnL          Boolean @default(false)
+  canCreateContent    Boolean @default(false)
+  canPostContent      Boolean @default(false)
+  canViewSettings     Boolean @default(false)
+  canManageDaraz      Boolean @default(false)
+}
+
+// =================== ORDERS ===================
 model Order {
   id           String   @id @default(cuid())
   orderId      String   @unique
@@ -36,8 +69,14 @@ model Order {
   staff        User?    @relation(fields: [staffId], references: [id])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+
+  // Daraz fields (future)
+  darazOrderId   String?
+  darazStatus    String?
+  darazPlatform  String?
 }
 
+// =================== MESSAGES ===================
 model Message {
   id         String   @id @default(cuid())
   platform   String
@@ -56,6 +95,7 @@ model Message {
   createdAt  DateTime @default(now())
 }
 
+// =================== FOLLOWUP ===================
 model Followup {
   id           String   @id @default(cuid())
   customerName String
@@ -69,6 +109,7 @@ model Followup {
   updatedAt    DateTime @updatedAt
 }
 
+// =================== SHIPMENT ===================
 model Shipment {
   id        String   @id @default(cuid())
   orderId   String
@@ -84,15 +125,55 @@ model Shipment {
   updatedAt DateTime @updatedAt
 }
 
-model Staff {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  phone     String?
-  role      String   @default("Sales")
-  status    String   @default("Active")
-  password  String?
-  joinDate  String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+// =================== CONTENT ===================
+model Content {
+  id          String   @id @default(cuid())
+  title       String
+  body        String
+  platform    String   // facebook, instagram, tiktok
+  status      String   @default("draft") // draft, scheduled, posted
+  scheduledAt DateTime?
+  postedAt    DateTime?
+  staffId     String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =================== P&L ===================
+model Transaction {
+  id          String   @id @default(cuid())
+  type        String   // income, expense
+  category    String   // order, courier, salary, ads, other
+  amount      Float
+  description String?
+  date        DateTime @default(now())
+  staffId     String?
+  createdAt   DateTime @default(now())
+}
+
+// =================== DARAZ (Future) ===================
+model DarazStore {
+  id          String   @id @default(cuid())
+  storeName   String
+  sellerId    String?
+  accessToken String?
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model DarazOrder {
+  id            String   @id @default(cuid())
+  darazOrderId  String   @unique
+  customerName  String
+  product       String
+  quantity      Int      @default(1)
+  price         Float
+  status        String
+  trackingNo    String?
+  returnStatus  String?
+  paymentStatus String?
+  storeId       String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 }
