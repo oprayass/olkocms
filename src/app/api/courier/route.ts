@@ -21,3 +21,16 @@ export async function POST(req: Request) {
     return NextResponse.json({ error: 'Failed to create shipment' }, { status: 500 })
   }
 }
+
+export async function PATCH(req: Request) {
+  try {
+    const { id, ...data } = await req.json()
+    const shipment = await prisma.shipment.update({
+      where: { id },
+      data,
+    })
+    return NextResponse.json(shipment)
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to update shipment' }, { status: 500 })
+  }
+}
