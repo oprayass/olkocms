@@ -11,101 +11,121 @@ async function getPageToken(pageId: string): Promise<string | null> {
   return null
 }
 
+async function getFacebookUserName(senderId: string, pageToken: string): Promise<string> {
+  try {
+    const res = await fetch(
+      `https://graph.facebook.com/v18.0/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
+    )
+    const data = await res.json()
+    return data.name || senderId
+  } catch {
+    return senderId
+  }
+}
+
 async function sendFacebookMessage(pageToken: string, recipientId: string, text: string) {
-  await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${pageToken}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      recipient: { id: recipientId },
-      message: { text }
+  try {
+    await fetch(`https://graph.facebook.com/v18.0/me/messages?access_token=${pageToken}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        recipient: { id: recipientId },
+        message: { text }
+      })
     })
-  })
+  } catch (err) {
+    console.error('Send message error:', err)
+  }
 }
 
 async function generateAIReply(
   senderId: string,
   pageId: string,
   customerMessage: string,
-  platform: string
+  platform: string,
+  senderName: string
 ): Promise<string> {
-  // Get or create conversation
   let conversation = await prisma.aIConversation.findFirst({
-    where: { senderId, pageId, resolved: false }
+    where: { senderId, pageId, resolved: false },
+    orderBy: { createdAt: 'desc' }
   })
 
   const history = conversation ? JSON.parse(conversation.messages) : []
-
-  // Get products for context
-  const products = await prisma.product.findMany({
-    where: { status: 'Active' },
-    take: 20
-  })
-
-  const productContext = products.length > 0
-    ? products.map(p => `- ${p.name}: Rs ${p.price}${p.salePrice ? ` (Sale: Rs ${p.salePrice})` : ''} | ${p.description || ''} | ${p.features || ''}`).join('\n')
-    : 'Products: General items available, ask for details.'
-
   const orderData = conversation?.orderData ? JSON.parse(conversation.orderData) : {}
   const stage = conversation?.stage || 'greeting'
 
-  // Add customer message to history
+  const products = await prisma.product.findMany({
+    where: { status: 'Active' },
+    take: 30
+  })
+
+  const productContext = products.length > 0
+    ? products.map(p =>
+        `• ${p.name} — Rs ${p.price}${p.salePrice ? ` (Sale: Rs ${p.salePrice})` : ''}\n  Description: ${p.description || 'N/A'}\n  Features: ${p.features || 'N/A'}\n  Usage: ${p.usage || 'N/A'}\n  Category: ${p.category || 'General'}`
+      ).join('\n\n')
+    : 'No specific products listed. Ask customer what they need.'
+
   history.push({ role: 'user', content: customerMessage })
 
-  const systemPrompt = `You are a friendly Nepali social commerce sales agent for Facebook page.
+  const systemPrompt = `You are a friendly, smart Nepali social commerce sales agent.
+Customer Name: ${senderName}
 
-PRODUCTS AVAILABLE:
+PRODUCTS WE SELL:
 ${productContext}
 
-CURRENT CONVERSATION STAGE: ${stage}
-ORDER DATA COLLECTED SO FAR: ${JSON.stringify(orderData)}
+CONVERSATION STAGE: ${stage}
+ORDER INFO COLLECTED: ${JSON.stringify(orderData)}
 
-YOUR PERSONALITY:
-- Warm, friendly, natural Nepali/English mixed tone
-- Sound like a real human, never robotic
-- Use "hajur", "bhai/didi", casual Nepali expressions naturally
-- Be helpful but also motivate to buy
+YOUR STYLE:
+- Natural Nepali/English mixed tone — sound like a real human
+- Use customer's name naturally
+- Use "hajur", "bhai/didi", "la", "ta" naturally
+- Never sound robotic or copy-paste like
+- Short replies (2-4 sentences max)
+- Be warm, helpful, persuasive
 
 SALES FLOW:
-1. greeting → understand what customer wants
-2. product_info → explain product, price, features, benefits
-3. collecting_order → collect: full name, phone number, delivery address
-4. confirmed → confirm order with total price including delivery
+1. greeting → understand need, recommend product
+2. product_info → explain benefits, compare, motivate to buy
+3. collecting_order → get: full name, phone (98/97/96XXXXXXXX), delivery address
+4. confirmed → confirm with full summary
 
-DELIVERY CHARGES:
+DELIVERY:
 - Kathmandu Valley: Rs 100
-- Outside Valley: Rs 150-200
-- Ask their location to confirm exact charge
+- Outside Valley: Rs 150
+- Ask location first
 
-BARGAINING:
-- Small discount (5-10%) is okay if they insist
-- Never go below cost price
-- Use phrases like "special price dirakou xa hajurko lagi"
+BARGAINING RESPONSE:
+- Max 10% discount only
+- Say: "Tapailai special price dirakou xa, arko customer lai yo price dinna"
 
-ORDER CONFIRMATION FORMAT:
-"Order confirm bhayo! 🎉
-Naam: [naam]
-Phone: [phone]  
-Address: [address]
-Product: [product] x [qty]
-Product Price: Rs [price]
-Delivery: Rs [delivery]
-TOTAL: Rs [total]
-Dhanyabad! Hamro team le 2-3 din ma deliver garxa 🚚"
+ORDER CONFIRM FORMAT (use exactly when all info collected):
+"🎉 Order confirm bhayo ${senderName} ji!
+━━━━━━━━━━━━━━━
+📦 Product: [name]
+👤 Naam: [naam]
+📞 Phone: [phone]
+📍 Address: [address]
+━━━━━━━━━━━━━━━
+💰 Product: Rs [price]
+🚚 Delivery: Rs [delivery]
+💵 TOTAL: Rs [total]
+━━━━━━━━━━━━━━━
+Hamro team le 2-3 din bhitra deliver garxa! Dhanyabad 🙏"
 
-IMPORTANT:
-- Detect language (Nepali/English/Mixed) and reply in SAME style
-- If voice message: acknowledge and ask to type
-- Keep replies SHORT (2-4 sentences max)
-- Always guide toward order completion
-- If order confirmed: set stage to "confirmed"
+IMPORTANT RULES:
+- Match customer's language (Nepali/English/Mixed)
+- If asked about product we don't have: "Yo product hami sanga xaina, tara [similar product] xa"
+- If voice message: ask to type
+- Always try to close the sale
 
-Current stage instructions:
-${stage === 'greeting' ? 'Greet warmly and ask what they need' : ''}
-${stage === 'product_info' ? 'Explain product benefits, motivate to buy, ask if they want to order' : ''}
-${stage === 'collecting_order' ? `Collecting order info. Already have: ${JSON.stringify(orderData)}. Ask for missing: name/phone/address` : ''}
-${stage === 'confirmed' ? 'Order confirmed! Thank customer and give delivery timeline' : ''}
+STAGE GUIDE:
+${stage === 'greeting' ? '→ Greet by name, ask what they need' : ''}
+${stage === 'product_info' ? '→ Explain product well, highlight benefits, ask if ready to order' : ''}
+${stage === 'collecting_order' ? `→ Need: ${!orderData.name ? 'naam' : ''} ${!orderData.phone ? 'phone' : ''} ${!orderData.address ? 'address' : ''}` : ''}
+${stage === 'confirmed' ? '→ Already confirmed, thank and reassure delivery' : ''}
 
-Reply ONLY with the message text, nothing else.`
+Reply with message text ONLY.`
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -117,39 +137,50 @@ Reply ONLY with the message text, nothing else.`
       },
       body: JSON.stringify({
         model: 'claude-sonnet-4-20250514',
-        max_tokens: 500,
+        max_tokens: 600,
         system: systemPrompt,
         messages: history
       })
     })
 
     const data = await response.json()
-    const replyText = data.content?.[0]?.text || 'Hajur, k help garna sakxu?'
+    const replyText = data.content?.[0]?.text || `Hajur ${senderName} ji, k help garna sakxu?`
 
-    // Add AI reply to history
     history.push({ role: 'assistant', content: replyText })
 
-    // Determine new stage
+    // Stage detection
     let newStage = stage
-    const lowerReply = replyText.toLowerCase()
     const lowerMsg = customerMessage.toLowerCase()
+    const lowerReply = replyText.toLowerCase()
 
-    if (stage === 'greeting' && (lowerMsg.includes('price') || lowerMsg.includes('kati') || lowerMsg.includes('product') || lowerMsg.includes('kinna'))) {
-      newStage = 'product_info'
-    } else if (stage === 'product_info' && (lowerMsg.includes('order') || lowerMsg.includes('kinna') || lowerMsg.includes('linu') || lowerMsg.includes('yes') || lowerMsg.includes('ok'))) {
-      newStage = 'collecting_order'
-    } else if (lowerReply.includes('order confirm bhayo') || lowerReply.includes('total:')) {
-      newStage = 'confirmed'
+    if (stage === 'greeting') {
+      if (lowerMsg.includes('price') || lowerMsg.includes('kati') || lowerMsg.includes('xa') ||
+          lowerMsg.includes('kinna') || lowerMsg.includes('buy') || lowerMsg.includes('order') ||
+          products.some(p => lowerMsg.includes(p.name.toLowerCase().split(' ')[0]))) {
+        newStage = 'product_info'
+      }
+    } else if (stage === 'product_info') {
+      if (lowerMsg.includes('ok') || lowerMsg.includes('hunu') || lowerMsg.includes('linu') ||
+          lowerMsg.includes('order') || lowerMsg.includes('yes') || lowerMsg.includes('kinna')) {
+        newStage = 'collecting_order'
+      }
+    } else if (stage === 'collecting_order') {
+      if (lowerReply.includes('order confirm') || lowerReply.includes('total:') || lowerReply.includes('total')) {
+        newStage = 'confirmed'
+      }
     }
 
-    // Extract order data from messages
-    const nameMatch = customerMessage.match(/(?:naam|name|म|मेरो नाम)[:\s]+([A-Za-z\u0900-\u097F\s]+)/i)
-    const phoneMatch = customerMessage.match(/(?:98|97|96)\d{8}/)
+    // Extract order info
     const updatedOrderData = { ...orderData }
+    const nameMatch = customerMessage.match(/(?:naam|name|मेरो नाम|म)[:\s]+([A-Za-z\u0900-\u097F\s]{3,30})/i)
+    const phoneMatch = customerMessage.match(/(98|97|96)\d{8}/)
+    const addressKeywords = ['ktm', 'kathmandu', 'lalitpur', 'bhaktapur', 'pokhara', 'chitwan', 'butwal', 'biratnagar', 'birgunj', 'dharan']
     if (nameMatch) updatedOrderData.name = nameMatch[1].trim()
     if (phoneMatch) updatedOrderData.phone = phoneMatch[0]
+    if (addressKeywords.some(k => lowerMsg.includes(k))) {
+      updatedOrderData.address = customerMessage
+    }
 
-    // Update or create conversation
     if (conversation) {
       await prisma.aIConversation.update({
         where: { id: conversation.id },
@@ -174,13 +205,12 @@ Reply ONLY with the message text, nothing else.`
       })
     }
 
-    // Log activity
     await fetch(`${process.env.NEXTAUTH_URL}/api/activity`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'ai_reply_sent',
-        description: `AI ले ${senderId} लाई auto-reply गर्यो: "${replyText.slice(0, 50)}..."`,
+        description: `AI ले ${senderName} (${senderId}) लाई reply गर्यो`,
         entityType: 'message',
         performedBy: 'AI',
         staffName: 'AI Sales Agent',
@@ -191,14 +221,14 @@ Reply ONLY with the message text, nothing else.`
     return replyText
   } catch (error) {
     console.error('AI reply error:', error)
-    return 'Hajur, k help garna sakxu?'
+    return `Hajur ${senderName} ji, k help garna sakxu?`
   }
 }
 
 export const POST = async (req: Request) => {
   try {
     const body = await req.json()
-    console.log('Facebook webhook received:', JSON.stringify(body))
+    console.log('Webhook received:', JSON.stringify(body).slice(0, 200))
 
     if (body.object === 'page') {
       for (const entry of body.entry) {
@@ -208,8 +238,16 @@ export const POST = async (req: Request) => {
           for (const event of entry.messaging) {
             if (event.message && !event.message.is_echo) {
               const senderId = event.sender.id
-              const messageText = event.message.text || '[media/voice]'
+              const messageText = event.message.text || '[media]'
               const isVoice = event.message.attachments?.some((a: any) => a.type === 'audio')
+
+              const pageToken = await getPageToken(pageId)
+
+              // Get sender name from Facebook
+              let senderName = senderId
+              if (pageToken) {
+                senderName = await getFacebookUserName(senderId, pageToken)
+              }
 
               // Save message to DB
               try {
@@ -217,31 +255,35 @@ export const POST = async (req: Request) => {
                   data: {
                     platform: 'facebook',
                     senderId,
-                    senderName: senderId,
+                    senderName,
                     pageId,
                     message: messageText,
                     timestamp: new Date(event.timestamp),
                     status: 'new',
                   }
                 })
+
+                // Update all previous messages with real name
+                await prisma.message.updateMany({
+                  where: { senderId, senderName: senderId },
+                  data: { senderName }
+                })
               } catch (dbErr) {
-                console.error('DB save error:', dbErr)
+                console.error('DB error:', dbErr)
               }
 
               // Auto AI reply
-              const pageToken = await getPageToken(pageId)
               if (pageToken) {
                 let replyText: string
 
                 if (isVoice) {
-                  replyText = 'Hajur! Voice message receive bhayo, tara hami abhi voice process garna sakdainau. K help chahiyo type garera lekhnu na? 🙏'
+                  replyText = `Hajur ${senderName} ji! Voice message receive bhayo 🎤 Tara hami voice process garna sakdainau. K help chahiyo type garera lekhnu na? 🙏`
                 } else {
-                  replyText = await generateAIReply(senderId, pageId, messageText, 'facebook')
+                  replyText = await generateAIReply(senderId, pageId, messageText, 'facebook', senderName)
                 }
 
                 await sendFacebookMessage(pageToken, senderId, replyText)
 
-                // Update message as replied
                 await prisma.message.updateMany({
                   where: { senderId, pageId, replied: false },
                   data: { replied: true, replyText, aiReplied: true }
