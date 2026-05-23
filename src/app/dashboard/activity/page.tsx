@@ -47,13 +47,11 @@ export default function ActivityPage() {
 
   return (
     <div className="p-4 max-w-3xl mx-auto">
-      {/* Header */}
       <div className="mb-5">
         <h1 className="text-xl font-bold text-white">Activity Log</h1>
-        <p className="text-gray-400 text-sm">को ले के गर्यो — सबै track यहाँ</p>
+        <p className="text-gray-400 text-sm">को ले के गर्यो - सबै track यहाँ</p>
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-5">
         <div className="bg-gradient-to-br from-violet-600 to-violet-800 rounded-2xl p-3 text-center">
           <div className="text-2xl font-bold text-white">{logs.length}</div>
@@ -61,15 +59,14 @@ export default function ActivityPage() {
         </div>
         <div className="bg-gradient-to-br from-blue-600 to-blue-800 rounded-2xl p-3 text-center">
           <div className="text-2xl font-bold text-white">{humanCount}</div>
-          <div className="text-xs text-white/70">👤 Human Actions</div>
+          <div className="text-xs text-white/70">Human Actions</div>
         </div>
         <div className="bg-gradient-to-br from-purple-600 to-purple-800 rounded-2xl p-3 text-center">
           <div className="text-2xl font-bold text-white">{aiCount}</div>
-          <div className="text-xs text-white/70">🤖 AI Actions</div>
+          <div className="text-xs text-white/70">AI Actions</div>
         </div>
       </div>
 
-      {/* Filter */}
       <div className="flex gap-2 mb-4">
         {filters.map(f => (
           <button
@@ -83,7 +80,6 @@ export default function ActivityPage() {
         ))}
       </div>
 
-      {/* Logs */}
       {loading ? (
         <div className="text-center text-gray-500 py-10">Loading...</div>
       ) : filtered.length === 0 ? (
@@ -102,13 +98,13 @@ export default function ActivityPage() {
                       {log.action}
                     </span>
                     {log.isAI
-                      ? <span className="text-xs text-violet-400">🤖 AI</span>
-                      : <span className="text-xs text-blue-400">👤 {log.staffName || 'Staff'}</span>
+                      ? <span className="text-xs text-violet-400">AI</span>
+                      : <span className="text-xs text-blue-400">{log.staffName || 'Staff'}</span>
                     }
                   </div>
                   <p className="text-white text-sm">{log.description}</p>
                   <p className="text-gray-500 text-xs mt-1">
-                    {new Date(log.createdAt).toLocaleString('ne-NP')}
+                    {new Date(log.createdAt).toLocaleString()}
                   </p>
                 </div>
               </div>
