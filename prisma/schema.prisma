@@ -177,3 +177,16 @@ model DarazOrder {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
+// =================== ACTIVITY LOG ===================
+model ActivityLog {
+  id          String   @id @default(cuid())
+  action      String   // message_reply, order_confirm, login, logout, staff_add, etc.
+  description String
+  entityType  String?  // message, order, staff, etc.
+  entityId    String?
+  performedBy String   // staff id वा "AI" वा "system"
+  staffName   String?  // display name
+  isAI        Boolean  @default(false)
+  metadata    String?  // JSON string — extra info
+  createdAt   DateTime @default(now())
+}
