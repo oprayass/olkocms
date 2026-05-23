@@ -190,3 +190,81 @@ model ActivityLog {
   metadata    String?  // JSON string — extra info
   createdAt   DateTime @default(now())
 }
+// =================== PRODUCTS ===================
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float
+  salePrice   Float?
+  stock       Int      @default(0)
+  images      String?  // JSON array of image URLs
+  videoUrl    String?
+  features    String?  // JSON array
+  usage       String?
+  implications String?
+  category    String?
+  status      String   @default("Active")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// =================== AD CAMPAIGNS ===================
+model AdCampaign {
+  id            String   @id @default(cuid())
+  name          String
+  platform      String   @default("facebook")
+  adId          String?  // Facebook Ad ID
+  productId     String?
+  budget        Float    @default(0)
+  spent         Float    @default(0)
+  startDate     DateTime?
+  endDate       DateTime?
+  status        String   @default("Active")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  expenses      AdExpense[]
+  orders        AdOrder[]
+}
+
+model AdExpense {
+  id          String   @id @default(cuid())
+  campaignId  String
+  campaign    AdCampaign @relation(fields: [campaignId], references: [id])
+  type        String   // ad_spend, ai_reply, shipping, exchange, failed_delivery, other
+  amount      Float
+  description String?
+  date        DateTime @default(now())
+  createdAt   DateTime @default(now())
+}
+
+model AdOrder {
+  id            String   @id @default(cuid())
+  campaignId    String?
+  campaign      AdCampaign? @relation(fields: [campaignId], references: [id])
+  orderId       String?
+  revenue       Float    @default(0)
+  shippingCost  Float    @default(0)
+  productCost   Float    @default(0)
+  aiCost        Float    @default(0)
+  otherCost     Float    @default(0)
+  status        String   @default("Pending") // Pending, Delivered, Failed, Exchanged
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+}
+
+// =================== AI CONVERSATIONS ===================
+model AIConversation {
+  id          String   @id @default(cuid())
+  senderId    String
+  pageId      String?
+  platform    String
+  messages    String   // JSON array of conversation history
+  stage       String   @default("greeting") // greeting, product_info, collecting_order, confirmed
+  orderData   String?  // JSON: naam, phone, address
+  productId   String?
+  campaignId  String?
+  resolved    Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
