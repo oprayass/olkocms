@@ -14,7 +14,7 @@ async function getPageToken(pageId: string): Promise<string | null> {
 async function getFacebookUserName(senderId: string, pageToken: string): Promise<string> {
   try {
     const res = await fetch(
-      `https://graph.facebook.com/v18.0/${senderId}?fields=name,profile_pic&access_token=${pageToken}`
+      `https://graph.facebook.com/v18.0/${senderId}?fields=name&access_token=${pageToken}`
     )
     const data = await res.json()
     return data.name || senderId
@@ -36,6 +36,38 @@ async function sendFacebookMessage(pageToken: string, recipientId: string, text:
   } catch (err) {
     console.error('Send message error:', err)
   }
+}
+
+// Nepali colloquial → English product keyword mapping
+const productAliases: Record<string, string> = {
+  'dari': 'beard trimmer shaver',
+  'daari': 'beard trimmer shaver',
+  'dhari': 'beard trimmer shaver',
+  'jhunga': 'beard trimmer shaver',
+  'khur': 'shaver razor trimmer',
+  'kaatnae': 'cutting trimmer clipper',
+  'kaatne': 'cutting trimmer clipper',
+  'projector': 'projector screen display',
+  'trimmer': 'trimmer hair beard clipper',
+  'machine': 'machine device gadget',
+  'light': 'light lamp bulb LED',
+  'fan': 'fan cooler air',
+  'camera': 'camera CCTV security',
+  'speaker': 'speaker sound bluetooth',
+  'earphone': 'earphone headphone earbud',
+  'charger': 'charger adapter cable',
+  'cover': 'cover case mobile phone',
+  'watch': 'watch smartwatch band',
+  'bag': 'bag backpack purse',
+}
+
+function expandMessage(message: string): string {
+  const words = message.toLowerCase().split(/\s+/)
+  const expanded = words.map(word => {
+    const alias = productAliases[word]
+    return alias ? `${word} ${alias}` : word
+  })
+  return expanded.join(' ')
 }
 
 async function generateAIReply(
@@ -61,48 +93,72 @@ async function generateAIReply(
 
   const productContext = products.length > 0
     ? products.map(p =>
-        `• ${p.name} — Rs ${p.price}${p.salePrice ? ` (Sale: Rs ${p.salePrice})` : ''}\n  Description: ${p.description || 'N/A'}\n  Features: ${p.features || 'N/A'}\n  Usage: ${p.usage || 'N/A'}\n  Category: ${p.category || 'General'}`
+        `• ${p.name} — Rs ${p.price}${p.salePrice ? ` (Sale: Rs ${p.salePrice})` : ''}
+  Description: ${p.description || 'N/A'}
+  Features: ${p.features || 'N/A'}
+  Usage: ${p.usage || 'N/A'}
+  Category: ${p.category || 'General'}`
       ).join('\n\n')
-    : 'No specific products listed. Ask customer what they need.'
+    : 'No specific products listed.'
 
-  history.push({ role: 'user', content: customerMessage })
+  // Expand customer message with aliases
+  const expandedMessage = expandMessage(customerMessage)
 
-  const systemPrompt = `You are a friendly, smart Nepali social commerce sales agent.
+  // Add to history with expanded context
+  history.push({
+    role: 'user',
+    content: customerMessage === expandedMessage
+      ? customerMessage
+      : `${customerMessage}\n[Context hint: ${expandedMessage}]`
+  })
+
+  const systemPrompt = `You are a friendly, smart Nepali social commerce sales agent chatting on Facebook Messenger.
 Customer Name: ${senderName}
 
 PRODUCTS WE SELL:
 ${productContext}
 
 CONVERSATION STAGE: ${stage}
-ORDER INFO COLLECTED: ${JSON.stringify(orderData)}
+ORDER INFO COLLECTED SO FAR: ${JSON.stringify(orderData)}
 
-YOUR STYLE:
-- Natural Nepali/English mixed tone — sound like a real human
-- Use customer's name naturally
-- Use "hajur", "bhai/didi", "la", "ta" naturally
-- Never sound robotic or copy-paste like
-- Short replies (2-4 sentences max)
-- Be warm, helpful, persuasive
+YOUR PERSONALITY:
+- Natural Nepali/English mixed tone — sound like a REAL human, never robotic
+- Use customer's name naturally once in a while
+- Use "hajur", "bhai/didi", "la", "ho ni", "ta" naturally
+- Short replies (2-4 sentences max) — no long paragraphs
+- Be warm, helpful, and gently persuasive
+
+PRODUCT MATCHING RULES:
+- "dari/daari kaatne machine" = beard trimmer/shaver
+- "khur" = razor/shaver
+- Match colloquial Nepali names to products intelligently
+- If product matches: explain it enthusiastically
+- If no exact match: suggest closest available product
+- If nothing similar: say "yo product hami sanga xaina hajur, tara [suggest something] xa ki?"
 
 SALES FLOW:
-1. greeting → understand need, recommend product
-2. product_info → explain benefits, compare, motivate to buy
-3. collecting_order → get: full name, phone (98/97/96XXXXXXXX), delivery address
-4. confirmed → confirm with full summary
+1. greeting → understand what customer needs, recommend product
+2. product_info → explain benefits clearly, price, motivate to buy
+3. collecting_order → collect: full name, phone number, delivery address
+4. confirmed → confirm with order summary
 
-DELIVERY:
-- Kathmandu Valley: Rs 100
+DELIVERY CHARGES:
+- Kathmandu Valley (KTM/Lalitpur/Bhaktapur): Rs 100
 - Outside Valley: Rs 150
-- Ask location first
+- Always ask location before confirming delivery charge
 
-BARGAINING RESPONSE:
-- Max 10% discount only
-- Say: "Tapailai special price dirakou xa, arko customer lai yo price dinna"
+BARGAINING:
+- Max 10% discount if they insist hard
+- Use: "Tapailai special price dirakou xa, arko customer lai yo price gardainau"
+- Don't give discount easily — first explain value
 
-ORDER CONFIRM FORMAT (use exactly when all info collected):
+HUMAN HANDOFF:
+- If customer is very angry or issue is complex: say "Hajur, ma hamro senior team lai connect gardinxu, ek chin wait garnu hola 🙏" and add [NEEDS_HUMAN] at end
+
+ORDER CONFIRMATION (use when you have name + phone + address):
 "🎉 Order confirm bhayo ${senderName} ji!
 ━━━━━━━━━━━━━━━
-📦 Product: [name]
+📦 [Product name]
 👤 Naam: [naam]
 📞 Phone: [phone]
 📍 Address: [address]
@@ -111,21 +167,15 @@ ORDER CONFIRM FORMAT (use exactly when all info collected):
 🚚 Delivery: Rs [delivery]
 💵 TOTAL: Rs [total]
 ━━━━━━━━━━━━━━━
-Hamro team le 2-3 din bhitra deliver garxa! Dhanyabad 🙏"
+Hamro team le 2-3 din ma deliver garxa! Dhanyabad 🙏"
 
-IMPORTANT RULES:
-- Match customer's language (Nepali/English/Mixed)
-- If asked about product we don't have: "Yo product hami sanga xaina, tara [similar product] xa"
-- If voice message: ask to type
-- Always try to close the sale
+CURRENT STAGE INSTRUCTIONS:
+${stage === 'greeting' ? '→ Greet warmly, understand what they need, recommend relevant product' : ''}
+${stage === 'product_info' ? '→ Explain product benefits well, share price, ask if they want to order' : ''}
+${stage === 'collecting_order' ? `→ Collecting order. Already have: ${JSON.stringify(orderData)}. Ask for missing info: ${!orderData.name ? 'naam ' : ''}${!orderData.phone ? 'phone ' : ''}${!orderData.address ? 'address' : ''}` : ''}
+${stage === 'confirmed' ? '→ Order already confirmed! Thank customer, reassure delivery timeline' : ''}
 
-STAGE GUIDE:
-${stage === 'greeting' ? '→ Greet by name, ask what they need' : ''}
-${stage === 'product_info' ? '→ Explain product well, highlight benefits, ask if ready to order' : ''}
-${stage === 'collecting_order' ? `→ Need: ${!orderData.name ? 'naam' : ''} ${!orderData.phone ? 'phone' : ''} ${!orderData.address ? 'address' : ''}` : ''}
-${stage === 'confirmed' ? '→ Already confirmed, thank and reassure delivery' : ''}
-
-Reply with message text ONLY.`
+Reply with message text ONLY. No quotes, no formatting tags.`
 
   try {
     const response = await fetch('https://api.anthropic.com/v1/messages', {
@@ -146,6 +196,8 @@ Reply with message text ONLY.`
     const data = await response.json()
     const replyText = data.content?.[0]?.text || `Hajur ${senderName} ji, k help garna sakxu?`
 
+    // Store actual customer message (not expanded) in history
+    history[history.length - 1] = { role: 'user', content: customerMessage }
     history.push({ role: 'assistant', content: replyText })
 
     // Stage detection
@@ -156,25 +208,33 @@ Reply with message text ONLY.`
     if (stage === 'greeting') {
       if (lowerMsg.includes('price') || lowerMsg.includes('kati') || lowerMsg.includes('xa') ||
           lowerMsg.includes('kinna') || lowerMsg.includes('buy') || lowerMsg.includes('order') ||
+          lowerMsg.includes('dari') || lowerMsg.includes('daari') || lowerMsg.includes('machine') ||
           products.some(p => lowerMsg.includes(p.name.toLowerCase().split(' ')[0]))) {
         newStage = 'product_info'
       }
     } else if (stage === 'product_info') {
       if (lowerMsg.includes('ok') || lowerMsg.includes('hunu') || lowerMsg.includes('linu') ||
-          lowerMsg.includes('order') || lowerMsg.includes('yes') || lowerMsg.includes('kinna')) {
+          lowerMsg.includes('order') || lowerMsg.includes('yes') || lowerMsg.includes('kinna') ||
+          lowerMsg.includes('pathau') || lowerMsg.includes('din')) {
         newStage = 'collecting_order'
       }
     } else if (stage === 'collecting_order') {
-      if (lowerReply.includes('order confirm') || lowerReply.includes('total:') || lowerReply.includes('total')) {
+      if (lowerReply.includes('order confirm') || lowerReply.includes('total:') ||
+          lowerReply.includes('deliver garxa')) {
         newStage = 'confirmed'
       }
     }
 
+    // Check if needs human
+    const needsHuman = replyText.includes('[NEEDS_HUMAN]')
+    const cleanReply = replyText.replace('[NEEDS_HUMAN]', '').trim()
+
     // Extract order info
     const updatedOrderData = { ...orderData }
-    const nameMatch = customerMessage.match(/(?:naam|name|मेरो नाम|म)[:\s]+([A-Za-z\u0900-\u097F\s]{3,30})/i)
+    const nameMatch = customerMessage.match(/(?:naam|name|मेरो नाम)[:\s]+([A-Za-z\u0900-\u097F\s]{2,30})/i)
     const phoneMatch = customerMessage.match(/(98|97|96)\d{8}/)
-    const addressKeywords = ['ktm', 'kathmandu', 'lalitpur', 'bhaktapur', 'pokhara', 'chitwan', 'butwal', 'biratnagar', 'birgunj', 'dharan']
+    const addressKeywords = ['ktm', 'kathmandu', 'lalitpur', 'bhaktapur', 'pokhara',
+      'chitwan', 'butwal', 'biratnagar', 'birgunj', 'dharan', 'hetauda', 'nepalgunj']
     if (nameMatch) updatedOrderData.name = nameMatch[1].trim()
     if (phoneMatch) updatedOrderData.phone = phoneMatch[0]
     if (addressKeywords.some(k => lowerMsg.includes(k))) {
@@ -205,12 +265,28 @@ Reply with message text ONLY.`
       })
     }
 
+    // Log if needs human handoff
+    if (needsHuman) {
+      await fetch(`${process.env.NEXTAUTH_URL}/api/activity`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          action: 'human_handoff_needed',
+          description: `⚠️ ${senderName} को conversation मा human help चाहिन्छ!`,
+          entityType: 'message',
+          performedBy: 'AI',
+          staffName: 'AI Sales Agent',
+          isAI: true,
+        })
+      }).catch(() => {})
+    }
+
     await fetch(`${process.env.NEXTAUTH_URL}/api/activity`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         action: 'ai_reply_sent',
-        description: `AI ले ${senderName} (${senderId}) लाई reply गर्यो`,
+        description: `AI ले ${senderName} लाई reply गर्यो [stage: ${newStage}]`,
         entityType: 'message',
         performedBy: 'AI',
         staffName: 'AI Sales Agent',
@@ -218,7 +294,7 @@ Reply with message text ONLY.`
       })
     }).catch(() => {})
 
-    return replyText
+    return cleanReply
   } catch (error) {
     console.error('AI reply error:', error)
     return `Hajur ${senderName} ji, k help garna sakxu?`
@@ -243,13 +319,11 @@ export const POST = async (req: Request) => {
 
               const pageToken = await getPageToken(pageId)
 
-              // Get sender name from Facebook
               let senderName = senderId
               if (pageToken) {
                 senderName = await getFacebookUserName(senderId, pageToken)
               }
 
-              // Save message to DB
               try {
                 await prisma.message.create({
                   data: {
@@ -262,8 +336,7 @@ export const POST = async (req: Request) => {
                     status: 'new',
                   }
                 })
-
-                // Update all previous messages with real name
+                // Update old messages with real name
                 await prisma.message.updateMany({
                   where: { senderId, senderName: senderId },
                   data: { senderName }
@@ -272,18 +345,15 @@ export const POST = async (req: Request) => {
                 console.error('DB error:', dbErr)
               }
 
-              // Auto AI reply
               if (pageToken) {
                 let replyText: string
-
                 if (isVoice) {
-                  replyText = `Hajur ${senderName} ji! Voice message receive bhayo 🎤 Tara hami voice process garna sakdainau. K help chahiyo type garera lekhnu na? 🙏`
+                  replyText = `Hajur ${senderName} ji! Voice message receive bhayo 🎤 Tara abhi voice process garna sakdainau. K help chahiyo type garera lekhnu na? 🙏`
                 } else {
                   replyText = await generateAIReply(senderId, pageId, messageText, 'facebook', senderName)
                 }
 
                 await sendFacebookMessage(pageToken, senderId, replyText)
-
                 await prisma.message.updateMany({
                   where: { senderId, pageId, replied: false },
                   data: { replied: true, replyText, aiReplied: true }
