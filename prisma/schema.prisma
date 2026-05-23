@@ -204,6 +204,7 @@ model Product {
   usage       String?
   implications String?
   category    String?
+  weightKg    Float    @default(0)
   status      String   @default("Active")
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
