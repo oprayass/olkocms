@@ -7,7 +7,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// =================== AUTH ===================
 model User {
   id        String    @id @default(cuid())
   name      String?
@@ -20,7 +19,6 @@ model User {
   messages  Message[]
 }
 
-// =================== STAFF ===================
 model Staff {
   id          String   @id @default(cuid())
   name        String
@@ -32,8 +30,6 @@ model Staff {
   joinDate    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
-
-  // Permissions
   canViewDashboard    Boolean @default(true)
   canViewOrders       Boolean @default(true)
   canConfirmOrders    Boolean @default(false)
@@ -51,7 +47,6 @@ model Staff {
   canManageDaraz      Boolean @default(false)
 }
 
-// =================== ORDERS ===================
 model Order {
   id           String   @id @default(cuid())
   orderId      String   @unique
@@ -65,18 +60,16 @@ model Order {
   courier      String?
   trackingNo   String?
   platform     String?
+  isSameDay    Boolean  @default(false)
   staffId      String?
   staff        User?    @relation(fields: [staffId], references: [id])
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
-
-  // Daraz fields (future)
   darazOrderId   String?
   darazStatus    String?
   darazPlatform  String?
 }
 
-// =================== MESSAGES ===================
 model Message {
   id         String   @id @default(cuid())
   platform   String
@@ -95,7 +88,6 @@ model Message {
   createdAt  DateTime @default(now())
 }
 
-// =================== FOLLOWUP ===================
 model Followup {
   id           String   @id @default(cuid())
   customerName String
@@ -109,7 +101,6 @@ model Followup {
   updatedAt    DateTime @updatedAt
 }
 
-// =================== SHIPMENT ===================
 model Shipment {
   id        String   @id @default(cuid())
   orderId   String
@@ -125,13 +116,12 @@ model Shipment {
   updatedAt DateTime @updatedAt
 }
 
-// =================== CONTENT ===================
 model Content {
   id          String   @id @default(cuid())
   title       String
   body        String
-  platform    String   // facebook, instagram, tiktok
-  status      String   @default("draft") // draft, scheduled, posted
+  platform    String
+  status      String   @default("draft")
   scheduledAt DateTime?
   postedAt    DateTime?
   staffId     String?
@@ -139,11 +129,10 @@ model Content {
   updatedAt   DateTime @updatedAt
 }
 
-// =================== P&L ===================
 model Transaction {
   id          String   @id @default(cuid())
-  type        String   // income, expense
-  category    String   // order, courier, salary, ads, other
+  type        String
+  category    String
   amount      Float
   description String?
   date        DateTime @default(now())
@@ -151,7 +140,6 @@ model Transaction {
   createdAt   DateTime @default(now())
 }
 
-// =================== DARAZ (Future) ===================
 model DarazStore {
   id          String   @id @default(cuid())
   storeName   String
@@ -177,45 +165,44 @@ model DarazOrder {
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
-// =================== ACTIVITY LOG ===================
+
 model ActivityLog {
   id          String   @id @default(cuid())
-  action      String   // message_reply, order_confirm, login, logout, staff_add, etc.
+  action      String
   description String
-  entityType  String?  // message, order, staff, etc.
+  entityType  String?
   entityId    String?
-  performedBy String   // staff id वा "AI" वा "system"
-  staffName   String?  // display name
+  performedBy String
+  staffName   String?
   isAI        Boolean  @default(false)
-  metadata    String?  // JSON string — extra info
+  metadata    String?
   createdAt   DateTime @default(now())
-}
-// =================== PRODUCTS ===================
-model Product {
-  id          String   @id @default(cuid())
-  name        String
-  description String?
-  price       Float
-  salePrice   Float?
-  stock       Int      @default(0)
-  images      String?  // JSON array of image URLs
-  videoUrl    String?
-  features    String?  // JSON array
-  usage       String?
-  implications String?
-  category    String?
-  weightKg    Float    @default(0)
-  status      String   @default("Active")
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
 }
 
-// =================== AD CAMPAIGNS ===================
+model Product {
+  id           String   @id @default(cuid())
+  name         String
+  description  String?
+  price        Float
+  salePrice    Float?
+  stock        Int      @default(0)
+  images       String?
+  videoUrl     String?
+  features     String?
+  usage        String?
+  implications String?
+  category     String?
+  weightKg     Float    @default(0)
+  status       String   @default("Active")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
+
 model AdCampaign {
   id            String   @id @default(cuid())
   name          String
   platform      String   @default("facebook")
-  adId          String?  // Facebook Ad ID
+  adId          String?
   productId     String?
   budget        Float    @default(0)
   spent         Float    @default(0)
@@ -232,7 +219,7 @@ model AdExpense {
   id          String   @id @default(cuid())
   campaignId  String
   campaign    AdCampaign @relation(fields: [campaignId], references: [id])
-  type        String   // ad_spend, ai_reply, shipping, exchange, failed_delivery, other
+  type        String
   amount      Float
   description String?
   date        DateTime @default(now())
@@ -249,20 +236,19 @@ model AdOrder {
   productCost   Float    @default(0)
   aiCost        Float    @default(0)
   otherCost     Float    @default(0)
-  status        String   @default("Pending") // Pending, Delivered, Failed, Exchanged
+  status        String   @default("Pending")
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
 
-// =================== AI CONVERSATIONS ===================
 model AIConversation {
   id          String   @id @default(cuid())
   senderId    String
   pageId      String?
   platform    String
-  messages    String   // JSON array of conversation history
-  stage       String   @default("greeting") // greeting, product_info, collecting_order, confirmed
-  orderData   String?  // JSON: naam, phone, address
+  messages    String
+  stage       String   @default("greeting")
+  orderData   String?
   productId   String?
   campaignId  String?
   resolved    Boolean  @default(false)

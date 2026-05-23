@@ -9,7 +9,7 @@ const statusColors: Record<string,string> = {
   Cancelled: 'bg-red-500/20 text-red-400 border border-red-500/30',
 }
 
-const emptyForm = { orderId:'', customerName:'', phone:'', address:'', product:'', quantity:'1', price:'', status:'Pending', courier:'', trackingNo:'', platform:'FB' }
+const emptyForm = { orderId:'', customerName:'', phone:'', address:'', product:'', quantity:'1', price:'', status:'Pending', courier:'', trackingNo:'', platform:'FB', isSameDay: false }
 
 export default function OrdersPage() {
   const [orders, setOrders] = useState<any[]>([])
@@ -58,7 +58,7 @@ export default function OrdersPage() {
           <p className='text-gray-400 mt-1'>Manage all your orders</p>
         </div>
         <button onClick={() => setShowForm(!showForm)} className='bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all'>
-          {showForm ? '✕ Cancel' : '+ New Order'}
+          {showForm ? 'X Cancel' : '+ New Order'}
         </button>
       </div>
 
@@ -76,7 +76,7 @@ export default function OrdersPage() {
             ].map(f => (
               <div key={f.k}>
                 <label className='text-gray-400 text-xs mb-1 block'>{f.l}</label>
-                <input value={form[f.k as keyof typeof form]} onChange={e=>setForm({...form,[f.k]:e.target.value})} placeholder={f.p} className='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500' />
+                <input value={form[f.k as keyof typeof form] as string} onChange={e=>setForm({...form,[f.k]:e.target.value})} placeholder={f.p} className='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500' />
               </div>
             ))}
             <div>
@@ -106,10 +106,17 @@ export default function OrdersPage() {
                 {['Pending','Confirmed','Processing','Delivered','Cancelled'].map(s => <option key={s} value={s}>{s}</option>)}
               </select>
             </div>
+            <div className='flex items-center gap-3 col-span-3 mt-1'>
+              <label className='flex items-center gap-2 cursor-pointer'>
+                <input type='checkbox' checked={form.isSameDay} onChange={e=>setForm({...form,isSameDay:e.target.checked})} className='w-4 h-4 accent-orange-500' />
+                <span className='text-sm text-white'>Same Day Delivery</span>
+                <span className='text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30'>Ktm Only</span>
+              </label>
+            </div>
           </div>
           <div className='flex gap-3 mt-4'>
             <button onClick={saveOrder} disabled={saving} className='px-5 py-2 bg-violet-600 hover:bg-violet-700 disabled:opacity-50 text-white rounded-xl text-sm font-medium transition-all'>
-              {saving ? '⏳ Saving...' : '💾 Save Order'}
+              {saving ? 'Saving...' : 'Save Order'}
             </button>
             <button onClick={() => { setForm(emptyForm); setShowForm(false) }} className='px-5 py-2 bg-gray-800 text-gray-400 rounded-xl text-sm transition-all'>Cancel</button>
           </div>
@@ -124,7 +131,7 @@ export default function OrdersPage() {
       </div>
 
       {loading ? (
-        <div className='text-center py-20 text-gray-400'>⏳ Loading orders...</div>
+        <div className='text-center py-20 text-gray-400'>Loading orders...</div>
       ) : (
         <div className='bg-gray-900 rounded-2xl border border-gray-800 overflow-hidden'>
           <table className='w-full text-sm'>
@@ -143,7 +150,15 @@ export default function OrdersPage() {
             <tbody>
               {filtered.map(o => (
                 <tr key={o.id} className='border-b border-gray-800/50 hover:bg-gray-800/30 transition-colors'>
-                  <td className='px-4 py-3'><p className='text-white font-medium'>{o.orderId}</p><p className='text-gray-500 text-xs'>{new Date(o.createdAt).toLocaleDateString()}</p></td>
+                  <td className='px-4 py-3'>
+                    <div className='flex items-center gap-2 flex-wrap'>
+                      <p className='text-white font-medium'>{o.orderId}</p>
+                      {o.isSameDay && (
+                        <span className='text-xs px-2 py-0.5 rounded-full bg-orange-500/20 text-orange-400 border border-orange-500/30 font-medium'>⚡ Same Day</span>
+                      )}
+                    </div>
+                    <p className='text-gray-500 text-xs'>{new Date(o.createdAt).toLocaleDateString()}</p>
+                  </td>
                   <td className='px-4 py-3'><p className='text-white'>{o.customerName}</p><p className='text-gray-400 text-xs'>{o.phone}</p></td>
                   <td className='px-4 py-3'><p className='text-white'>{o.product}</p><p className='text-gray-400 text-xs'>Qty: {o.quantity}</p></td>
                   <td className='px-4 py-3 text-white'>Rs {o.price?.toLocaleString()}</td>
@@ -165,6 +180,7 @@ export default function OrdersPage() {
       <div className='mt-4 flex gap-4 text-sm text-gray-400'>
         <span>Total: <span className='text-white font-medium'>{filtered.length}</span> orders</span>
         <span>Revenue: <span className='text-white font-medium'>Rs {filtered.reduce((a,o)=>a+(o.price*o.quantity),0).toLocaleString()}</span></span>
+        <span>Same Day: <span className='text-orange-400 font-medium'>{filtered.filter(o=>o.isSameDay).length}</span> orders</span>
       </div>
     </div>
   )
