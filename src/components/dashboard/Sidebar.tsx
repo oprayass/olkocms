@@ -13,13 +13,13 @@ const nav = [
   { label: 'Activity', href: '/dashboard/activity', icon: '📋' },
   { label: 'Courier', href: '/dashboard/courier', icon: '🚚' },
   { label: 'Reports', href: '/dashboard/reports', icon: '📈' },
+  { label: 'Subscriptions', href: '/dashboard/subscriptions', icon: '💳' },
   { label: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
 ]
 
 export function Sidebar() {
   const path = usePathname()
   const { data: session } = useSession()
-
   return (
     <aside className="w-60 min-h-screen bg-gray-900 border-r border-gray-800 flex flex-col">
       <div className="p-5 border-b border-gray-800">
