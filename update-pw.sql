@@ -1,0 +1,1 @@
+UPDATE "User" SET password = '$2b$10$Ulj4412pQQ56iwonD5mpPOYpQ7gbvDHivlHVLkaVfBO6u/CADlYhK' WHERE email = 'admin@olkocms.com';

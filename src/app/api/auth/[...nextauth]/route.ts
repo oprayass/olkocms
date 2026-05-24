@@ -14,55 +14,69 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        const user = await prisma.user.findUnique({
-          where: { email: credentials.email }
-        })
+        try {
+          const user = await prisma.user.findUnique({
+            where: { email: credentials.email },
+            select: { id: true, name: true, email: true, password: true, role: true, subscriptionId: true }
+          })
 
-        if (user) {
-          const passwordMatch = await bcrypt.compare(credentials.password, user.password || "")
-          if (!passwordMatch) return null
-          return {
-            id: user.id,
-            name: user.name,
-            email: user.email,
-            role: user.role || "admin",
-            subscriptionId: (user as any).subscriptionId || null,
-            permissions: {},
+          if (user && user.password) {
+            const match = await bcrypt.compare(credentials.password, user.password)
+            if (!match) return null
+            return {
+              id: user.id,
+              name: user.name,
+              email: user.email,
+              role: user.role || "admin",
+              subscriptionId: user.subscriptionId || null,
+              permissions: {},
+            }
           }
-        }
 
-        const staff = await prisma.staff.findUnique({
-          where: { email: credentials.email }
-        })
+          const staff = await prisma.staff.findUnique({
+            where: { email: credentials.email },
+            select: {
+              id: true, name: true, email: true, password: true,
+              status: true, subscriptionId: true,
+              canViewDashboard: true, canViewOrders: true, canConfirmOrders: true,
+              canViewMessages: true, canReplyMessages: true, canViewStaff: true,
+              canManageStaff: true, canViewCourier: true, canManageCourier: true,
+              canViewReports: true, canViewPnL: true, canCreateContent: true,
+              canPostContent: true, canViewSettings: true, canManageDaraz: true,
+            }
+          })
 
-        if (staff) {
-          const passwordMatch = await bcrypt.compare(credentials.password, staff.password || "")
-          if (!passwordMatch) return null
-          if (staff.status === "Inactive") return null
-          return {
-            id: staff.id,
-            name: staff.name,
-            email: staff.email,
-            role: "staff",
-            subscriptionId: (staff as any).subscriptionId || null,
-            permissions: {
-              canViewDashboard: staff.canViewDashboard,
-              canViewOrders: staff.canViewOrders,
-              canConfirmOrders: staff.canConfirmOrders,
-              canViewMessages: staff.canViewMessages,
-              canReplyMessages: staff.canReplyMessages,
-              canViewStaff: staff.canViewStaff,
-              canManageStaff: staff.canManageStaff,
-              canViewCourier: staff.canViewCourier,
-              canManageCourier: staff.canManageCourier,
-              canViewReports: staff.canViewReports,
-              canViewPnL: staff.canViewPnL,
-              canCreateContent: staff.canCreateContent,
-              canPostContent: staff.canPostContent,
-              canViewSettings: staff.canViewSettings,
-              canManageDaraz: staff.canManageDaraz,
-            },
+          if (staff && staff.password) {
+            const match = await bcrypt.compare(credentials.password, staff.password)
+            if (!match) return null
+            if (staff.status === "Inactive") return null
+            return {
+              id: staff.id,
+              name: staff.name,
+              email: staff.email,
+              role: "staff",
+              subscriptionId: staff.subscriptionId || null,
+              permissions: {
+                canViewDashboard: staff.canViewDashboard,
+                canViewOrders: staff.canViewOrders,
+                canConfirmOrders: staff.canConfirmOrders,
+                canViewMessages: staff.canViewMessages,
+                canReplyMessages: staff.canReplyMessages,
+                canViewStaff: staff.canViewStaff,
+                canManageStaff: staff.canManageStaff,
+                canViewCourier: staff.canViewCourier,
+                canManageCourier: staff.canManageCourier,
+                canViewReports: staff.canViewReports,
+                canViewPnL: staff.canViewPnL,
+                canCreateContent: staff.canCreateContent,
+                canPostContent: staff.canPostContent,
+                canViewSettings: staff.canViewSettings,
+                canManageDaraz: staff.canManageDaraz,
+              },
+            }
           }
+        } catch (e) {
+          console.error("Auth error:", e)
         }
 
         return null
