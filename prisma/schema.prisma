@@ -50,29 +50,35 @@ model Staff {
 }
 
 model Order {
-  id                String   @id @default(cuid())
-  orderId           String   @unique
-  customerName      String
-  phone             String
-  address           String?
-  product           String
-  quantity          Int      @default(1)
-  price             Float
-  status            String   @default("Pending")
-  courier           String?
-  trackingNo        String?
-  platform          String?
-  senderId          String?
-  isSameDay         Boolean  @default(false)
-  isCancelledAtDoor Boolean  @default(false)
-  isExchange        Boolean  @default(false)
-  staffId           String?
-  staff             User?    @relation(fields: [staffId], references: [id])
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
-  darazOrderId      String?
-  darazStatus       String?
-  darazPlatform     String?
+  id                     String   @id @default(cuid())
+  orderId                String   @unique
+  customerName           String
+  phone                  String
+  address                String?
+  product                String
+  quantity               Int      @default(1)
+  price                  Float
+  costPrice              Float?
+  shippingCharge         Float?
+  customerShippingCharge Float?
+  status                 String   @default("Pending")
+  courier                String?
+  trackingNo             String?
+  platform               String?
+  senderId               String?
+  campaignId             String?
+  adId                   String?
+  isSameDay              Boolean  @default(false)
+  isCancelledAtDoor      Boolean  @default(false)
+  isExchange             Boolean  @default(false)
+  isFailedDelivery       Boolean  @default(false)
+  staffId                String?
+  staff                  User?    @relation(fields: [staffId], references: [id])
+  createdAt              DateTime @default(now())
+  updatedAt              DateTime @updatedAt
+  darazOrderId           String?
+  darazStatus            String?
+  darazPlatform          String?
 }
 
 model Message {
@@ -190,6 +196,7 @@ model Product {
   description  String?
   price        Float
   salePrice    Float?
+  costPrice    Float?
   stock        Int      @default(0)
   images       String?
   videoUrl     String?
@@ -204,18 +211,18 @@ model Product {
 }
 
 model AdCampaign {
-  id        String     @id @default(cuid())
+  id        String      @id @default(cuid())
   name      String
-  platform  String     @default("facebook")
+  platform  String      @default("facebook")
   adId      String?
   productId String?
-  budget    Float      @default(0)
-  spent     Float      @default(0)
+  budget    Float       @default(0)
+  spent     Float       @default(0)
   startDate DateTime?
   endDate   DateTime?
-  status    String     @default("Active")
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  status    String      @default("Active")
+  createdAt DateTime    @default(now())
+  updatedAt DateTime    @updatedAt
   expenses  AdExpense[]
   orders    AdOrder[]
 }
@@ -232,18 +239,23 @@ model AdExpense {
 }
 
 model AdOrder {
-  id           String      @id @default(cuid())
-  campaignId   String?
-  campaign     AdCampaign? @relation(fields: [campaignId], references: [id])
-  orderId      String?
-  revenue      Float       @default(0)
-  shippingCost Float       @default(0)
-  productCost  Float       @default(0)
-  aiCost       Float       @default(0)
-  otherCost    Float       @default(0)
-  status       String      @default("Pending")
-  createdAt    DateTime    @default(now())
-  updatedAt    DateTime    @updatedAt
+  id                     String      @id @default(cuid())
+  campaignId             String?
+  campaign               AdCampaign? @relation(fields: [campaignId], references: [id])
+  orderId                String?
+  adId                   String?
+  revenue                Float       @default(0)
+  shippingCost           Float       @default(0)
+  customerShippingCharge Float       @default(0)
+  productCost            Float       @default(0)
+  costPrice              Float       @default(0)
+  salePrice              Float       @default(0)
+  aiCost                 Float       @default(0)
+  otherCost              Float       @default(0)
+  status                 String      @default("Pending")
+  isFailedDelivery       Boolean     @default(false)
+  createdAt              DateTime    @default(now())
+  updatedAt              DateTime    @updatedAt
 }
 
 model AIConversation {
