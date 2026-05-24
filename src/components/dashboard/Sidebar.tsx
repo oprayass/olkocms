@@ -9,6 +9,7 @@ const nav = [
   { label: 'Messages', href: '/dashboard/messages', icon: '💬' },
   { label: 'Products', href: '/dashboard/products', icon: '🛍️' },
   { label: 'Follow-ups', href: '/dashboard/followups', icon: '🔔' },
+  { label: 'Ads', href: '/dashboard/ads', icon: '📢' },
   { label: 'Staff', href: '/dashboard/staff', icon: '👥' },
   { label: 'Activity', href: '/dashboard/activity', icon: '📋' },
   { label: 'Courier', href: '/dashboard/courier', icon: '🚚' },
