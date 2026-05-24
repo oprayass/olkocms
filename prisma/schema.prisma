@@ -8,30 +8,30 @@ datasource db {
 }
 
 model User {
-  id        String    @id @default(cuid())
-  name      String?
-  email     String?   @unique
-  password  String?
-  role      String    @default("staff")
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  orders    Order[]
-  messages  Message[]
+  id             String    @id @default(cuid())
+  name           String?
+  email          String?   @unique
+  password       String?
+  role           String    @default("staff")
   subscriptionId String?
-  role      String    @default("staff")
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  orders         Order[]
+  messages       Message[]
 }
 
 model Staff {
-  id          String   @id @default(cuid())
-  name        String
-  email       String   @unique
-  phone       String?
-  role        String   @default("Sales")
-  status      String   @default("Active")
-  password    String?
-  joinDate    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id               String   @id @default(cuid())
+  name             String
+  email            String   @unique
+  phone            String?
+  role             String   @default("Sales")
+  status           String   @default("Active")
+  password         String?
+  joinDate         String?
+  subscriptionId   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
   canViewDashboard    Boolean @default(true)
   canViewOrders       Boolean @default(true)
   canConfirmOrders    Boolean @default(false)
@@ -47,32 +47,32 @@ model Staff {
   canPostContent      Boolean @default(false)
   canViewSettings     Boolean @default(false)
   canManageDaraz      Boolean @default(false)
-  subscriptionId      String?
 }
 
 model Order {
-  id           String   @id @default(cuid())
-  orderId      String   @unique
-  customerName String
-  phone        String
-  address      String?
-  product      String
-  quantity     Int      @default(1)
-  price        Float
-  status       String   @default("Pending")
-  courier      String?
-  trackingNo   String?
-  platform     String?
+  id                String   @id @default(cuid())
+  orderId           String   @unique
+  customerName      String
+  phone             String
+  address           String?
+  product           String
+  quantity          Int      @default(1)
+  price             Float
+  status            String   @default("Pending")
+  courier           String?
+  trackingNo        String?
+  platform          String?
+  senderId          String?
   isSameDay         Boolean  @default(false)
   isCancelledAtDoor Boolean  @default(false)
   isExchange        Boolean  @default(false)
-  staffId      String?
-  staff        User?    @relation(fields: [staffId], references: [id])
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
-  darazOrderId   String?
-  darazStatus    String?
-  darazPlatform  String?
+  staffId           String?
+  staff             User?    @relation(fields: [staffId], references: [id])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  darazOrderId      String?
+  darazStatus       String?
+  darazPlatform     String?
 }
 
 model Message {
@@ -122,16 +122,16 @@ model Shipment {
 }
 
 model Content {
-  id          String   @id @default(cuid())
+  id          String    @id @default(cuid())
   title       String
   body        String
   platform    String
-  status      String   @default("draft")
+  status      String    @default("draft")
   scheduledAt DateTime?
   postedAt    DateTime?
   staffId     String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 }
 
 model Transaction {
@@ -204,66 +204,66 @@ model Product {
 }
 
 model AdCampaign {
-  id            String   @id @default(cuid())
-  name          String
-  platform      String   @default("facebook")
-  adId          String?
-  productId     String?
-  budget        Float    @default(0)
-  spent         Float    @default(0)
-  startDate     DateTime?
-  endDate       DateTime?
-  status        String   @default("Active")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  expenses      AdExpense[]
-  orders        AdOrder[]
+  id        String     @id @default(cuid())
+  name      String
+  platform  String     @default("facebook")
+  adId      String?
+  productId String?
+  budget    Float      @default(0)
+  spent     Float      @default(0)
+  startDate DateTime?
+  endDate   DateTime?
+  status    String     @default("Active")
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  expenses  AdExpense[]
+  orders    AdOrder[]
 }
 
 model AdExpense {
-  id          String   @id @default(cuid())
+  id          String     @id @default(cuid())
   campaignId  String
   campaign    AdCampaign @relation(fields: [campaignId], references: [id])
   type        String
   amount      Float
   description String?
-  date        DateTime @default(now())
-  createdAt   DateTime @default(now())
+  date        DateTime   @default(now())
+  createdAt   DateTime   @default(now())
 }
 
 model AdOrder {
-  id            String   @id @default(cuid())
-  campaignId    String?
-  campaign      AdCampaign? @relation(fields: [campaignId], references: [id])
-  orderId       String?
-  revenue       Float    @default(0)
-  shippingCost  Float    @default(0)
-  productCost   Float    @default(0)
-  aiCost        Float    @default(0)
-  otherCost     Float    @default(0)
-  status        String   @default("Pending")
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  id           String      @id @default(cuid())
+  campaignId   String?
+  campaign     AdCampaign? @relation(fields: [campaignId], references: [id])
+  orderId      String?
+  revenue      Float       @default(0)
+  shippingCost Float       @default(0)
+  productCost  Float       @default(0)
+  aiCost       Float       @default(0)
+  otherCost    Float       @default(0)
+  status       String      @default("Pending")
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
 }
 
 model AIConversation {
-  id          String   @id @default(cuid())
-  senderId    String
-  pageId      String?
-  platform    String
-  messages    String
-  stage       String   @default("greeting")
-  orderData   String?
-  productId   String?
-  campaignId  String?
-  resolved    Boolean  @default(false)
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  id         String   @id @default(cuid())
+  senderId   String
+  pageId     String?
+  platform   String
+  messages   String
+  stage      String   @default("greeting")
+  orderData  String?
+  productId  String?
+  campaignId String?
+  resolved   Boolean  @default(false)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 }
-// =================== SUBSCRIPTION ===================
+
 model Plan {
   id            String         @id @default(cuid())
-  name          String         // Starter, Growth, Pro
+  name          String
   priceMonthly  Float
   priceYearly   Float
   maxPages      Int            @default(1)
@@ -277,22 +277,22 @@ model Plan {
 }
 
 model Subscription {
-  id              String    @id @default(cuid())
-  businessName    String
-  email           String    @unique
-  phone           String?
-  planId          String
-  plan            Plan      @relation(fields: [planId], references: [id])
-  status          String    @default("Trial")  // Trial, Active, Expired, Cancelled
-  billingCycle    String    @default("monthly") // monthly, yearly
-  trialEndsAt     DateTime
+  id               String    @id @default(cuid())
+  businessName     String
+  email            String    @unique
+  phone            String?
+  planId           String
+  plan             Plan      @relation(fields: [planId], references: [id])
+  status           String    @default("Trial")
+  billingCycle     String    @default("monthly")
+  trialEndsAt      DateTime
   currentPeriodEnd DateTime
-  pagesConnected  Int       @default(0)
-  staffCount      Int       @default(0)
-  notes           String?
-  createdAt       DateTime  @default(now())
-  updatedAt       DateTime  @updatedAt
-  payments        Payment[]
+  pagesConnected   Int       @default(0)
+  staffCount       Int       @default(0)
+  notes            String?
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+  payments         Payment[]
 }
 
 model Payment {
@@ -300,8 +300,8 @@ model Payment {
   subscriptionId String
   subscription   Subscription @relation(fields: [subscriptionId], references: [id])
   amount         Float
-  method         String       // eSewa, Khalti, Bank, Cash
-  status         String       @default("Pending") // Pending, Completed, Failed
+  method         String
+  status         String       @default("Pending")
   reference      String?
   paidAt         DateTime?
   periodStart    DateTime
