@@ -17,6 +17,8 @@ model User {
   updatedAt DateTime  @updatedAt
   orders    Order[]
   messages  Message[]
+  subscriptionId String?
+  role      String    @default("staff")
 }
 
 model Staff {
@@ -45,6 +47,7 @@ model Staff {
   canPostContent      Boolean @default(false)
   canViewSettings     Boolean @default(false)
   canManageDaraz      Boolean @default(false)
+  subscriptionId      String?
 }
 
 model Order {
