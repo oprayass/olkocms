@@ -4,25 +4,25 @@ import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 
 const allNav = [
-  { label: 'Dashboard',     href: '/dashboard',              icon: 'ðŸ“Š', roles: ['admin','staff','subscriber','subscriber_admin'] },
-  { label: 'Orders',        href: '/dashboard/orders',       icon: 'ðŸ“¦', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewOrders' },
-  { label: 'Messages',      href: '/dashboard/messages',     icon: 'ðŸ’¬', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewMessages' },
-  { label: 'Products',      href: '/dashboard/products',     icon: 'ðŸ›ï¸', roles: ['admin','staff','subscriber','subscriber_admin'] },
-  { label: 'Follow-ups',    href: '/dashboard/followups',    icon: 'ðŸ””', roles: ['admin','staff','subscriber','subscriber_admin'] },
-  { label: 'Staff',         href: '/dashboard/staff',        icon: 'ðŸ‘¥', roles: ['admin','subscriber_admin'], perm: 'canViewStaff' },
-  { label: 'Activity',      href: '/dashboard/activity',     icon: 'ðŸ“‹', roles: ['admin','subscriber_admin'] },
-  { label: 'Courier',       href: '/dashboard/courier',      icon: 'ðŸšš', roles: ['admin','staff','subscriber_admin'], perm: 'canViewCourier' },
-  { label: 'Reports',       href: '/dashboard/reports',      icon: 'ðŸ“ˆ', roles: ['admin','subscriber_admin'], perm: 'canViewReports' },
-  { label: 'Content',       href: '/dashboard/content',      icon: 'âœï¸', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canCreateContent' },
-  { label: 'Subscriptions', href: '/dashboard/subscriptions',icon: 'ðŸ’³', roles: ['admin'] },
-  { label: 'Settings',      href: '/dashboard/settings',     icon: 'âš™ï¸', roles: ['admin','subscriber_admin'], perm: 'canViewSettings' },
+  { label: 'Dashboard',     href: '/dashboard',               icon: '📊', roles: ['admin','staff','subscriber','subscriber_admin'] },
+  { label: 'Orders',        href: '/dashboard/orders',        icon: '📦', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewOrders' },
+  { label: 'Messages',      href: '/dashboard/messages',      icon: '💬', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewMessages' },
+  { label: 'Products',      href: '/dashboard/products',      icon: '🛍️', roles: ['admin','staff','subscriber','subscriber_admin'] },
+  { label: 'Follow-ups',    href: '/dashboard/followups',     icon: '🔔', roles: ['admin','staff','subscriber','subscriber_admin'] },
+  { label: 'Staff',         href: '/dashboard/staff',         icon: '👥', roles: ['admin','subscriber_admin'], perm: 'canViewStaff' },
+  { label: 'Activity',      href: '/dashboard/activity',      icon: '📋', roles: ['admin','subscriber_admin'] },
+  { label: 'Courier',       href: '/dashboard/courier',       icon: '🚚', roles: ['admin','staff','subscriber_admin'], perm: 'canViewCourier' },
+  { label: 'Reports',       href: '/dashboard/reports',       icon: '📈', roles: ['admin','subscriber_admin'], perm: 'canViewReports' },
+  { label: 'Content',       href: '/dashboard/content',       icon: '✍️', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canCreateContent' },
+  { label: 'Subscriptions', href: '/dashboard/subscriptions', icon: '💳', roles: ['admin'] },
+  { label: 'Settings',      href: '/dashboard/settings',      icon: '⚙️', roles: ['admin','subscriber_admin'], perm: 'canViewSettings' },
 ]
 
 const roleLabel: Record<string,string> = {
-  admin: 'ðŸ‘‘ Admin',
-  staff: 'ðŸ‘¤ Staff',
-  subscriber: 'ðŸª Business',
-  subscriber_admin: 'ðŸ¢ Biz Admin',
+  admin: 'Admin',
+  staff: 'Staff',
+  subscriber: 'Business',
+  subscriber_admin: 'Biz Admin',
 }
 const roleColor: Record<string,string> = {
   admin: 'bg-violet-600',
@@ -53,7 +53,6 @@ export function Sidebar() {
         <h1 className="text-xl font-bold text-white">OlkoCMS</h1>
         <p className="text-xs text-gray-400 mt-1">Social Commerce</p>
       </div>
-
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
         {visibleNav.map((item) => (
           <Link key={item.href} href={item.href}
@@ -64,7 +63,6 @@ export function Sidebar() {
           </Link>
         ))}
       </nav>
-
       <div className="p-4 border-t border-gray-800">
         <div className="flex items-center gap-3 mb-2">
           <div className={`w-8 h-8 rounded-full ${roleColor[role]||'bg-violet-600'} flex items-center justify-center text-sm font-bold text-white`}>
@@ -75,7 +73,7 @@ export function Sidebar() {
             <p className="text-xs text-gray-400 truncate">{user?.email || ''}</p>
           </div>
         </div>
-        <div className={`text-center text-xs py-1 rounded-lg mb-3 ${roleColor[role]||'bg-violet-600'} bg-opacity-20 text-white/60 border border-white/10`}>
+        <div className="text-center text-xs py-1 rounded-lg mb-3 bg-gray-800 text-gray-400 border border-gray-700">
           {roleLabel[role] || role}
         </div>
         <button onClick={() => signOut({ callbackUrl: '/login' })}
