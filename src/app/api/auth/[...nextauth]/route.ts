@@ -1,9 +1,9 @@
-import NextAuth from "next-auth"
+import NextAuth, { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { prisma } from "@/lib/prisma"
 import bcrypt from "bcryptjs"
 
-const handler = NextAuth({
+export const authOptions: NextAuthOptions = {
   providers: [
     CredentialsProvider({
       name: "credentials",
@@ -14,39 +14,36 @@ const handler = NextAuth({
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        // पहिले User table मा हेर्ने (admin/subscriber)
         const user = await prisma.user.findUnique({
           where: { email: credentials.email }
         })
 
         if (user) {
-          const passwordMatch = await bcrypt.compare(credentials.password, user.password || '')
+          const passwordMatch = await bcrypt.compare(credentials.password, user.password || "")
           if (!passwordMatch) return null
           return {
             id: user.id,
             name: user.name,
             email: user.email,
-            role: user.role || 'admin',
+            role: user.role || "admin",
             subscriptionId: (user as any).subscriptionId || null,
             permissions: {},
           }
         }
 
-        // Staff table मा हेर्ने
         const staff = await prisma.staff.findUnique({
           where: { email: credentials.email }
         })
 
         if (staff) {
-          const passwordMatch = await bcrypt.compare(credentials.password, staff.password || '')
+          const passwordMatch = await bcrypt.compare(credentials.password, staff.password || "")
           if (!passwordMatch) return null
-          if (staff.status === 'Inactive') return null
-
+          if (staff.status === "Inactive") return null
           return {
             id: staff.id,
             name: staff.name,
             email: staff.email,
-            role: 'staff',
+            role: "staff",
             subscriptionId: (staff as any).subscriptionId || null,
             permissions: {
               canViewDashboard: staff.canViewDashboard,
@@ -95,6 +92,7 @@ const handler = NextAuth({
   pages: { signIn: "/login" },
   session: { strategy: "jwt" },
   secret: process.env.NEXTAUTH_SECRET,
-})
+}
 
+const handler = NextAuth(authOptions)
 export { handler as GET, handler as POST }
