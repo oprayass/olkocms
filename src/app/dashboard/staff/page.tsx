@@ -1,5 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
+import { useSession } from 'next-auth/react'
 
 interface Staff {
   id: string
@@ -9,6 +10,7 @@ interface Staff {
   role: string
   status: string
   joinDate?: string
+  subscriptionId?: string
   canViewDashboard: boolean
   canViewOrders: boolean
   canConfirmOrders: boolean
@@ -52,6 +54,13 @@ const permLabels: { key: keyof Staff; label: string }[] = [
 ]
 
 export default function StaffPage() {
+  const { data: session } = useSession()
+  const user = session?.user as any
+  const role = user?.role || 'staff'
+  const subscriptionId = user?.subscriptionId || null
+  const isAdmin = role === 'admin'
+  const isSubAdmin = role === 'subscriber_admin'
+
   const [staff, setStaff] = useState<Staff[]>([])
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
@@ -62,9 +71,10 @@ export default function StaffPage() {
 
   const fetchStaff = async () => {
     try {
-      const res = await fetch('/api/staff')
+      const url = isAdmin ? '/api/staff' : `/api/staff?subscriptionId=${subscriptionId}`
+      const res = await fetch(url)
       const data = await res.json()
-      setStaff(data)
+      setStaff(Array.isArray(data) ? data : [])
     } catch (e) {
       console.error(e)
     } finally {
@@ -78,10 +88,11 @@ export default function StaffPage() {
     if (!form.name || !form.email) return
     setSaving(true)
     try {
+      const body = isSubAdmin ? { ...form, subscriptionId } : form
       const res = await fetch('/api/staff', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify(body)
       })
       if (res.ok) {
         setForm({ name: '', email: '', phone: '', role: 'Sales', password: '' })
@@ -119,18 +130,20 @@ export default function StaffPage() {
 
   return (
     <div className="p-4 max-w-2xl mx-auto">
-      {/* Header */}
       <div className="flex items-center justify-between mb-5">
         <div>
           <h1 className="text-xl font-bold text-white">Staff</h1>
-          <p className="text-gray-400 text-sm">Team management</p>
+          <p className="text-gray-400 text-sm">
+            {isAdmin ? 'All staff management' : 'Your business team'}
+          </p>
         </div>
-        <button onClick={() => setShowAdd(!showAdd)} className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-medium">
-          + Add Staff
-        </button>
+        {(isAdmin || isSubAdmin) && (
+          <button onClick={() => setShowAdd(!showAdd)} className="bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-medium">
+            + Add Staff
+          </button>
+        )}
       </div>
 
-      {/* Stats */}
       <div className="grid grid-cols-3 gap-3 mb-5">
         {[
           { label: 'Total', value: staff.length, color: 'from-violet-600 to-violet-800' },
@@ -144,8 +157,14 @@ export default function StaffPage() {
         ))}
       </div>
 
-      {/* Add Form */}
-      {showAdd && (
+      {/* Subscriber Admin info banner */}
+      {isSubAdmin && (
+        <div className="bg-orange-500/10 border border-orange-500/30 rounded-xl p-3 mb-4 text-xs text-orange-300">
+          🏢 तपाईंको business का staff मात्र देखिन्छ — आफ्नो team add/manage गर्नुस्
+        </div>
+      )}
+
+      {showAdd && (isAdmin || isSubAdmin) && (
         <div className="bg-gray-900 rounded-2xl border border-gray-800 p-4 mb-5">
           <h2 className="text-white font-medium mb-3">New Staff थप्नुस्</h2>
           <div className="space-y-2">
@@ -166,16 +185,16 @@ export default function StaffPage() {
         </div>
       )}
 
-      {/* Staff List */}
       {loading ? (
         <div className="text-center text-gray-500 py-10">Loading...</div>
       ) : staff.length === 0 ? (
-        <div className="text-center text-gray-500 py-10">No staff added yet</div>
+        <div className="text-center text-gray-500 py-10">
+          {isSubAdmin ? 'तपाईंको business मा अझै staff छैन' : 'No staff added yet'}
+        </div>
       ) : (
         <div className="space-y-3">
           {staff.map(s => (
             <div key={s.id} className="bg-gray-900 rounded-2xl border border-gray-800 p-4">
-              {/* Staff Info */}
               <div className="flex items-start gap-3">
                 <div className="w-11 h-11 rounded-full bg-violet-600 flex items-center justify-center text-white font-bold text-lg flex-shrink-0">
                   {s.name.charAt(0)}
@@ -188,33 +207,24 @@ export default function StaffPage() {
                   </div>
                   <p className="text-gray-400 text-xs truncate">{s.email}</p>
                   {s.phone && <p className="text-gray-500 text-xs">{s.phone}</p>}
-                  {s.joinDate && <p className="text-gray-600 text-xs mt-0.5">Joined: {s.joinDate}</p>}
                 </div>
               </div>
 
-              {/* Action Buttons */}
               <div className="grid grid-cols-3 gap-2 mt-3">
-                <button
-                  onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
-                  className="py-2 rounded-xl text-xs font-medium bg-violet-500/20 text-violet-400 border border-violet-500/30 hover:bg-violet-500/30"
-                >
+                <button onClick={() => setExpandedId(expandedId === s.id ? null : s.id)}
+                  className="py-2 rounded-xl text-xs font-medium bg-violet-500/20 text-violet-400 border border-violet-500/30 hover:bg-violet-500/30">
                   {expandedId === s.id ? 'Hide' : 'Permissions'}
                 </button>
-                <button
-                  onClick={() => toggleStatus(s.id, s.status)}
-                  className={`py-2 rounded-xl text-xs font-medium transition-all ${s.status === 'Active' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}
-                >
+                <button onClick={() => toggleStatus(s.id, s.status)}
+                  className={`py-2 rounded-xl text-xs font-medium transition-all ${s.status === 'Active' ? 'bg-orange-500/20 text-orange-400 border border-orange-500/30' : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'}`}>
                   {s.status === 'Active' ? 'Deactivate' : 'Activate'}
                 </button>
-                <button
-                  onClick={() => setDeleteConfirm(s.id)}
-                  className="py-2 rounded-xl text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
-                >
+                <button onClick={() => setDeleteConfirm(s.id)}
+                  className="py-2 rounded-xl text-xs font-medium bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30">
                   Remove
                 </button>
               </div>
 
-              {/* Permissions Panel */}
               {expandedId === s.id && (
                 <div className="mt-3 p-3 bg-gray-800/50 rounded-xl border border-gray-700">
                   <p className="text-gray-400 text-xs font-medium mb-3">Permissions</p>
@@ -222,10 +232,8 @@ export default function StaffPage() {
                     {permLabels.map(({ key, label }) => (
                       <div key={key} className="flex items-center justify-between">
                         <span className="text-gray-300 text-xs">{label}</span>
-                        <button
-                          onClick={() => togglePermission(s.id, key, s[key] as boolean)}
-                          className={`relative w-10 h-5 rounded-full transition-all ${s[key] ? 'bg-violet-600' : 'bg-gray-700'}`}
-                        >
+                        <button onClick={() => togglePermission(s.id, key, s[key] as boolean)}
+                          className={`relative w-10 h-5 rounded-full transition-all ${s[key] ? 'bg-violet-600' : 'bg-gray-700'}`}>
                           <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${s[key] ? 'left-5' : 'left-0.5'}`} />
                         </button>
                       </div>
@@ -234,7 +242,6 @@ export default function StaffPage() {
                 </div>
               )}
 
-              {/* Delete Confirm */}
               {deleteConfirm === s.id && (
                 <div className="mt-3 p-3 bg-red-500/10 border border-red-500/30 rounded-xl">
                   <p className="text-red-400 text-xs mb-2">"{s.name}" लाई remove गर्ने?</p>

@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { NextRequest } from 'next/server'
 
 const defaultPermissions = {
   Sales: {
@@ -32,9 +33,12 @@ const defaultPermissions = {
   },
 }
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
-    const staff = await prisma.staff.findMany({ orderBy: { createdAt: 'desc' } })
+    const { searchParams } = new URL(req.url)
+    const subscriptionId = searchParams.get('subscriptionId')
+    const where = subscriptionId ? { subscriptionId } : {}
+    const staff = await prisma.staff.findMany({ where, orderBy: { createdAt: 'desc' } })
     return NextResponse.json(staff)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch staff' }, { status: 500 })
@@ -44,7 +48,7 @@ export async function GET() {
 export async function POST(req: Request) {
   try {
     const body = await req.json()
-    const { name, email, phone, role, password, permissions } = body
+    const { name, email, phone, role, password, permissions, subscriptionId } = body
     if (!name || !email) return NextResponse.json({ error: 'Name and email required' }, { status: 400 })
     const rolePerms = defaultPermissions[role as keyof typeof defaultPermissions] || defaultPermissions.Sales
     const finalPerms = permissions || rolePerms
@@ -55,6 +59,7 @@ export async function POST(req: Request) {
         password: password || null,
         status: 'Active',
         joinDate: new Date().toISOString().split('T')[0],
+        subscriptionId: subscriptionId || null,
         ...finalPerms
       }
     })
