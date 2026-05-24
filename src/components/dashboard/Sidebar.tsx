@@ -4,25 +4,25 @@ import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 
 const allNav = [
-  { label: 'Dashboard',     href: '/dashboard',              icon: '📊', roles: ['admin','staff','subscriber','subscriber_admin'] },
-  { label: 'Orders',        href: '/dashboard/orders',       icon: '📦', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewOrders' },
-  { label: 'Messages',      href: '/dashboard/messages',     icon: '💬', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewMessages' },
-  { label: 'Products',      href: '/dashboard/products',     icon: '🛍️', roles: ['admin','staff','subscriber','subscriber_admin'] },
-  { label: 'Follow-ups',    href: '/dashboard/followups',    icon: '🔔', roles: ['admin','staff','subscriber','subscriber_admin'] },
-  { label: 'Staff',         href: '/dashboard/staff',        icon: '👥', roles: ['admin','subscriber_admin'], perm: 'canViewStaff' },
-  { label: 'Activity',      href: '/dashboard/activity',     icon: '📋', roles: ['admin','subscriber_admin'] },
-  { label: 'Courier',       href: '/dashboard/courier',      icon: '🚚', roles: ['admin','staff','subscriber_admin'], perm: 'canViewCourier' },
-  { label: 'Reports',       href: '/dashboard/reports',      icon: '📈', roles: ['admin','subscriber_admin'], perm: 'canViewReports' },
-  { label: 'Content',       href: '/dashboard/content',      icon: '✍️', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canCreateContent' },
-  { label: 'Subscriptions', href: '/dashboard/subscriptions',icon: '💳', roles: ['admin'] },
-  { label: 'Settings',      href: '/dashboard/settings',     icon: '⚙️', roles: ['admin','subscriber_admin'], perm: 'canViewSettings' },
+  { label: 'Dashboard',     href: '/dashboard',              icon: 'ðŸ“Š', roles: ['admin','staff','subscriber','subscriber_admin'] },
+  { label: 'Orders',        href: '/dashboard/orders',       icon: 'ðŸ“¦', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewOrders' },
+  { label: 'Messages',      href: '/dashboard/messages',     icon: 'ðŸ’¬', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canViewMessages' },
+  { label: 'Products',      href: '/dashboard/products',     icon: 'ðŸ›ï¸', roles: ['admin','staff','subscriber','subscriber_admin'] },
+  { label: 'Follow-ups',    href: '/dashboard/followups',    icon: 'ðŸ””', roles: ['admin','staff','subscriber','subscriber_admin'] },
+  { label: 'Staff',         href: '/dashboard/staff',        icon: 'ðŸ‘¥', roles: ['admin','subscriber_admin'], perm: 'canViewStaff' },
+  { label: 'Activity',      href: '/dashboard/activity',     icon: 'ðŸ“‹', roles: ['admin','subscriber_admin'] },
+  { label: 'Courier',       href: '/dashboard/courier',      icon: 'ðŸšš', roles: ['admin','staff','subscriber_admin'], perm: 'canViewCourier' },
+  { label: 'Reports',       href: '/dashboard/reports',      icon: 'ðŸ“ˆ', roles: ['admin','subscriber_admin'], perm: 'canViewReports' },
+  { label: 'Content',       href: '/dashboard/content',      icon: 'âœï¸', roles: ['admin','staff','subscriber','subscriber_admin'], perm: 'canCreateContent' },
+  { label: 'Subscriptions', href: '/dashboard/subscriptions',icon: 'ðŸ’³', roles: ['admin'] },
+  { label: 'Settings',      href: '/dashboard/settings',     icon: 'âš™ï¸', roles: ['admin','subscriber_admin'], perm: 'canViewSettings' },
 ]
 
 const roleLabel: Record<string,string> = {
-  admin: '👑 Admin',
-  staff: '👤 Staff',
-  subscriber: '🏪 Business',
-  subscriber_admin: '🏢 Biz Admin',
+  admin: 'ðŸ‘‘ Admin',
+  staff: 'ðŸ‘¤ Staff',
+  subscriber: 'ðŸª Business',
+  subscriber_admin: 'ðŸ¢ Biz Admin',
 }
 const roleColor: Record<string,string> = {
   admin: 'bg-violet-600',
@@ -35,7 +35,7 @@ export function Sidebar() {
   const path = usePathname()
   const { data: session } = useSession()
   const user = session?.user as any
-  const role = user?.role || 'staff'
+  const role = user?.role || 'admin'
   const perms = user?.permissions || {}
 
   const visibleNav = allNav.filter(item => {
