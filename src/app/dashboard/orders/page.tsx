@@ -1,6 +1,6 @@
 'use client'
 import { useState, useEffect, useRef } from 'react'
-import { MessageCircle, X, Send, User, Bot, Loader2 } from 'lucide-react'
+import { MessageCircle, X, Send, User, Bot, Loader2, Phone, CheckCircle } from 'lucide-react'
 
 const statusColors: Record<string,string> = {
   Pending: 'bg-amber-500/20 text-amber-400 border border-amber-500/30',
@@ -10,10 +10,16 @@ const statusColors: Record<string,string> = {
   Cancelled: 'bg-red-500/20 text-red-400 border border-red-500/30',
 }
 
+const PAGE_NAMES: Record<string, string> = {
+  '344520078737283': 'नेपाली बाबु',
+  '296064883592821': 'PINK ME',
+}
+
 const emptyForm = {
   orderId:'', customerName:'', phone:'', address:'', product:'', quantity:'1',
   price:'', costPrice:'', shippingCharge:'', customerShippingCharge:'',
   status:'Pending', courier:'', trackingNo:'', platform:'FB', campaignId:'', adId:'',
+  pageId:'', pageName:'',
   isSameDay: false, isCancelledAtDoor: false, isExchange: false, isFailedDelivery: false
 }
 
@@ -78,7 +84,7 @@ function CustomerMessageDrawer({ customerName, phone, senderId }: { customerName
               {loading ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
                   <Loader2 className="w-7 h-7 text-blue-400 animate-spin" />
-                  <p className="text-gray-400 text-sm">Messages load हुँदैछ...</p>
+                  <p className="text-gray-400 text-sm">Messages लोड हुँदैछ...</p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
@@ -143,18 +149,44 @@ export default function OrdersPage() {
   const [search, setSearch] = useState('')
   const [filter, setFilter] = useState('All')
   const [showForm, setShowForm] = useState(false)
-  const [editOrder, setEditOrder] = useState<any>(null)
   const [form, setForm] = useState(emptyForm)
   const [saving, setSaving] = useState(false)
+  const [confirmingSMS, setConfirmingSMS] = useState<string | null>(null)
+  const [smsSuccess, setSmsSuccess] = useState<string | null>(null)
 
   useEffect(() => {
     fetch('/api/orders').then(r => r.json()).then(data => { setOrders(Array.isArray(data) ? data : []); setLoading(false) }).catch(() => setLoading(false))
     fetch('/api/ad-campaigns').then(r => r.json()).then(data => setCampaigns(Array.isArray(data) ? data : []))
   }, [])
 
-  const updateStatus = async (id: string, status: string) => {
+  const updateStatus = async (id: string, status: string, order: any) => {
     await fetch('/api/orders/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status }) })
     setOrders(orders.map(o => o.id === id ? {...o, status} : o))
+
+    // Status Confirmed भयो भने SMS + WhatsApp पठाउने
+    if (status === 'Confirmed' && order.phone) {
+      setConfirmingSMS(id)
+      try {
+        await fetch('/api/sms/confirm', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            phone: order.phone,
+            customerName: order.customerName,
+            product: order.product,
+            price: order.price,
+            pageName: order.pageName || 'OlkoCMS',
+            orderId: order.orderId,
+          })
+        })
+        setSmsSuccess(id)
+        setTimeout(() => setSmsSuccess(null), 3000)
+      } catch (e) {
+        console.error('SMS failed:', e)
+      } finally {
+        setConfirmingSMS(null)
+      }
+    }
   }
 
   const toggleFlag = async (id: string, field: string, value: boolean) => {
@@ -172,7 +204,8 @@ export default function OrdersPage() {
       costPrice: form.costPrice ? parseFloat(form.costPrice) : null,
       shippingCharge: form.shippingCharge ? parseFloat(form.shippingCharge) : null,
       customerShippingCharge: form.customerShippingCharge ? parseFloat(form.customerShippingCharge) : null,
-      orderId: form.orderId || '#'+Date.now()
+      orderId: form.orderId || '#'+Date.now(),
+      pageName: form.pageId ? (PAGE_NAMES[form.pageId] || form.pageName) : form.pageName,
     }
     const res = await fetch('/api/orders', { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(orderData) })
     const newOrder = await res.json()
@@ -243,6 +276,13 @@ export default function OrdersPage() {
               <label className='text-gray-400 text-xs mb-1 block'>Platform</label>
               <select value={form.platform} onChange={e=>setForm({...form,platform:e.target.value})} className='w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm outline-none'>
                 {['FB','IG','WA','Direct'].map(p => <option key={p} value={p}>{p}</option>)}
+              </select>
+            </div>
+            <div>
+              <label className='text-gray-400 text-xs mb-1 block'>Facebook Page</label>
+              <select value={form.pageId} onChange={e=>setForm({...form, pageId:e.target.value, pageName: PAGE_NAMES[e.target.value] || ''})} className='w-full bg-gray-800 border border-gray-700 text-white rounded-xl px-3 py-2 text-sm outline-none'>
+                <option value=''>Select Page</option>
+                {Object.entries(PAGE_NAMES).map(([id, name]) => <option key={id} value={id}>{name}</option>)}
               </select>
             </div>
             <div>
@@ -333,11 +373,46 @@ export default function OrdersPage() {
                   <td className='px-4 py-3'>
                     <p className='text-white font-medium'>{o.orderId}</p>
                     <p className='text-gray-500 text-xs'>{new Date(o.createdAt).toLocaleDateString()}</p>
+                    {o.pageName && <p className='text-violet-400 text-xs mt-0.5'>📄 {o.pageName}</p>}
                   </td>
                   <td className='px-4 py-3'>
                     <p className='text-white'>{o.customerName}</p>
                     <p className='text-gray-400 text-xs mb-1'>{o.phone}</p>
-                    <CustomerMessageDrawer customerName={o.customerName} phone={o.phone} senderId={o.senderId} />
+                    {/* Action Buttons */}
+                    <div className='flex items-center gap-1 flex-wrap mt-1'>
+                      {/* Call Button */}
+                      {o.phone && (
+                        <a
+                          href={`tel:${o.phone}`}
+                          onClick={e => e.stopPropagation()}
+                          className='inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-2 py-0.5 rounded-full transition-all border border-transparent hover:border-emerald-500/30'
+                        >
+                          <Phone className='w-3 h-3' /><span>Call</span>
+                        </a>
+                      )}
+                      {/* WhatsApp Button */}
+                      {o.phone && (
+                        <a
+                          href={`https://wa.me/977${o.phone.replace(/^0/, '')}?text=${encodeURIComponent(`नमस्ते ${o.customerName} जी! 😊\nतपाईंको order "${o.product}" (Rs ${o.price?.toLocaleString()}) confirm भयो।\nधन्यवाद! - ${o.pageName || 'OlkoCMS'}`)}`}
+                          target='_blank'
+                          rel='noopener noreferrer'
+                          onClick={e => e.stopPropagation()}
+                          className='inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10 px-2 py-0.5 rounded-full transition-all border border-transparent hover:border-green-500/30'
+                        >
+                          <svg className='w-3 h-3' fill='currentColor' viewBox='0 0 24 24'><path d='M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z'/></svg>
+                          <span>WhatsApp</span>
+                        </a>
+                      )}
+                      {/* Messages Button */}
+                      <CustomerMessageDrawer customerName={o.customerName} phone={o.phone} senderId={o.senderId} />
+                    </div>
+                    {/* SMS Success */}
+                    {smsSuccess === o.id && (
+                      <div className='flex items-center gap-1 mt-1'>
+                        <CheckCircle className='w-3 h-3 text-emerald-400' />
+                        <span className='text-xs text-emerald-400'>SMS पठाइयो!</span>
+                      </div>
+                    )}
                   </td>
                   <td className='px-4 py-3'>
                     <p className='text-white'>{o.product}</p>
@@ -358,7 +433,10 @@ export default function OrdersPage() {
                     ) : <p className='text-gray-600 text-xs'>-</p>}
                     {o.adId && <p className='text-gray-500 text-xs'>Ad: {o.adId}</p>}
                   </td>
-                  <td className='px-4 py-3'><span className={'text-xs px-2 py-1 rounded-full '+(statusColors[o.status]||'')}>{o.status}</span></td>
+                  <td className='px-4 py-3'>
+                    <span className={'text-xs px-2 py-1 rounded-full '+(statusColors[o.status]||'')}>{o.status}</span>
+                    {confirmingSMS === o.id && <p className='text-xs text-amber-400 mt-1 flex items-center gap-1'><Loader2 className='w-3 h-3 animate-spin' />SMS...</p>}
+                  </td>
                   <td className='px-4 py-3'>
                     <div className='flex flex-col gap-1'>
                       <label className='flex items-center gap-1.5 cursor-pointer'>
@@ -381,7 +459,7 @@ export default function OrdersPage() {
                   </td>
                   <td className='px-4 py-3'><p className='text-white text-xs'>{o.courier||'-'}</p><p className='text-gray-400 text-xs'>{o.trackingNo||''}</p></td>
                   <td className='px-4 py-3'>
-                    <select value={o.status} onChange={e=>updateStatus(o.id,e.target.value)} className='bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 text-xs outline-none'>
+                    <select value={o.status} onChange={e=>updateStatus(o.id, e.target.value, o)} className='bg-gray-800 border border-gray-700 text-white rounded-lg px-2 py-1 text-xs outline-none'>
                       {['Pending','Confirmed','Processing','Delivered','Cancelled'].map(s=>(<option key={s} value={s}>{s}</option>))}
                     </select>
                   </td>
