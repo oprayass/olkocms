@@ -68,6 +68,8 @@ model Order {
   senderId               String?
   campaignId             String?
   adId                   String?
+  pageId    String?
+  pageName  String?
   isSameDay              Boolean  @default(false)
   isCancelledAtDoor      Boolean  @default(false)
   isExchange             Boolean  @default(false)
