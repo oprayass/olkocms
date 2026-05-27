@@ -11,7 +11,7 @@ const statusColors: Record<string,string> = {
 }
 
 const PAGE_NAMES: Record<string, string> = {
-  '344520078737283': 'à¤¨à¥‡à¤ªà¤¾à¤²à¥€ à¤¬à¤¾à¤¬à¥',
+  '344520078737283': 'Nepali Babu',
   '296064883592821': 'PINK ME',
 }
 
@@ -59,7 +59,7 @@ function CustomerMessageDrawer({ customerName, phone, senderId }: { customerName
     finally { setSending(false) }
   }
 
-  const formatTime = (d: string) => new Date(d).toLocaleString('ne-NP', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+  const formatTime = (d: string) => new Date(d).toLocaleString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
   return (
     <>
@@ -84,12 +84,12 @@ function CustomerMessageDrawer({ customerName, phone, senderId }: { customerName
               {loading ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
                   <Loader2 className="w-7 h-7 text-blue-400 animate-spin" />
-                  <p className="text-gray-400 text-sm">Messages à¤²à¥‹à¤¡ à¤¹à¥à¤à¤¦à¥ˆà¤›...</p>
+                  <p className="text-gray-400 text-sm">Loading messages...</p>
                 </div>
               ) : messages.length === 0 ? (
                 <div className="flex flex-col items-center justify-center h-full gap-3">
                   <MessageCircle className="w-12 h-12 text-gray-700" />
-                  <p className="text-gray-500 text-sm text-center">{customerName} à¤¸à¤à¤— à¤•à¥à¤¨à¥ˆ message à¤›à¥ˆà¤¨</p>
+                  <p className="text-gray-500 text-sm text-center">No messages with {customerName}</p>
                 </div>
               ) : (
                 <>
@@ -123,15 +123,15 @@ function CustomerMessageDrawer({ customerName, phone, senderId }: { customerName
               {senderId ? (
                 <>
                   <div className="flex items-center gap-2">
-                    <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Reply à¤²à¥‡à¤–à¥à¤¨à¥à¤¸à¥..." className="flex-1 bg-gray-700 text-white text-sm rounded-xl px-4 py-2.5 border border-gray-600 focus:border-blue-500 focus:outline-none placeholder-gray-400" />
+                    <input type="text" value={replyText} onChange={(e) => setReplyText(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleSend()} placeholder="Type a reply..." className="flex-1 bg-gray-700 text-white text-sm rounded-xl px-4 py-2.5 border border-gray-600 focus:border-blue-500 focus:outline-none placeholder-gray-400" />
                     <button onClick={handleSend} disabled={!replyText.trim() || sending} className="w-10 h-10 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 rounded-xl flex items-center justify-center disabled:cursor-not-allowed">
                       {sending ? <Loader2 className="w-4 h-4 text-white animate-spin" /> : <Send className="w-4 h-4 text-white" />}
                     </button>
                   </div>
-                  <p className="text-xs text-gray-600 mt-1.5 text-center">Enter â€” Facebook à¤®à¤¾ reply à¤œà¤¾à¤¨à¥à¤›</p>
+                  <p className="text-xs text-gray-600 mt-1.5 text-center">Enter to reply on Facebook</p>
                 </>
               ) : (
-                <p className="text-xs text-gray-600 text-center py-1">Facebook ID à¤¨à¤­à¤à¤•à¥‹à¤²à¥‡ reply à¤ªà¤ à¤¾à¤‰à¤¨ à¤®à¤¿à¤²à¥à¤¦à¥ˆà¤¨</p>
+                <p className="text-xs text-gray-600 text-center py-1">No Facebook ID — cannot send reply</p>
               )}
             </div>
           </div>
@@ -162,8 +162,6 @@ export default function OrdersPage() {
   const updateStatus = async (id: string, status: string, order: any) => {
     await fetch('/api/orders/'+id, { method:'PATCH', headers:{'Content-Type':'application/json'}, body:JSON.stringify({ status }) })
     setOrders(orders.map(o => o.id === id ? {...o, status} : o))
-
-    // Status Confirmed à¤­à¤¯à¥‹ à¤­à¤¨à¥‡ SMS + WhatsApp à¤ªà¤ à¤¾à¤‰à¤¨à¥‡
     if (status === 'Confirmed' && order.phone) {
       setConfirmingSMS(id)
       try {
@@ -181,11 +179,8 @@ export default function OrdersPage() {
         })
         setSmsSuccess(id)
         setTimeout(() => setSmsSuccess(null), 3000)
-      } catch (e) {
-        console.error('SMS failed:', e)
-      } finally {
-        setConfirmingSMS(null)
-      }
+      } catch (e) { console.error('SMS failed:', e) }
+      finally { setConfirmingSMS(null) }
     }
   }
 
@@ -217,7 +212,7 @@ export default function OrdersPage() {
 
   const filtered = orders.filter(o => {
     const matchSearch = o.customerName?.toLowerCase().includes(search.toLowerCase()) || o.orderId?.includes(search) || o.phone?.includes(search)
-    const matchFilter = filter === 'All' || o.status === filter || (filter === 'SameDay' && o.isSameDay) || (filter === 'Exchange' && o.isExchange) || (filter === 'CancelledDoor' && o.isCancelledAtDoor) || (filter === 'Failed' && o.isFailedDelivery)
+    const matchFilter = filter === 'All' || o.status === filter || (filter === 'SameDay' && o.isSameDay) || (filter === 'Exchange' && o.isExchange) || (filter === 'FailedDoor' && (o.isCancelledAtDoor || o.isFailedDelivery))
     return matchSearch && matchFilter
   })
 
@@ -240,18 +235,18 @@ export default function OrdersPage() {
           <h1 className='text-2xl font-bold text-white'>Orders</h1>
           <p className='text-gray-400 mt-1'>Manage all your orders</p>
         </div>
-        <button onClick={() => setShowForm(!showForm)} className='bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all'>{showForm ? 'X Cancel' : '+ New Order'}</button>
+        <button onClick={() => setShowForm(!showForm)} className='bg-violet-600 hover:bg-violet-700 text-white px-4 py-2 rounded-xl text-sm font-medium transition-all'>{showForm ? 'Cancel' : '+ New Order'}</button>
       </div>
 
       <div className='grid grid-cols-5 gap-3 mb-5'>
         {[
-          { label: 'Total', value: orders.length, color: 'from-violet-600 to-violet-800' },
-          { label: 'Same Day', value: orders.filter(o=>o.isSameDay).length, color: 'from-orange-500 to-orange-700' },
-          { label: 'Exchange', value: orders.filter(o=>o.isExchange).length, color: 'from-blue-500 to-blue-700' },
-          { label: 'Cancelled at Door', value: orders.filter(o=>o.isCancelledAtDoor).length, color: 'from-red-500 to-red-700' },
-          { label: 'Failed Delivery', value: orders.filter(o=>o.isFailedDelivery).length, color: 'from-gray-600 to-gray-800' },
+          { label: 'Total', value: orders.length, color: 'from-violet-600 to-violet-800', f: 'All' },
+          { label: 'Same Day', value: orders.filter(o=>o.isSameDay).length, color: 'from-orange-500 to-orange-700', f: 'SameDay' },
+          { label: 'Exchange', value: orders.filter(o=>o.isExchange).length, color: 'from-blue-500 to-blue-700', f: 'Exchange' },
+          { label: 'Failed / Door', value: orders.filter(o=>o.isCancelledAtDoor||o.isFailedDelivery).length, color: 'from-red-500 to-red-700', f: 'FailedDoor' },
+          { label: 'Delivered', value: orders.filter(o=>o.status==='Delivered').length, color: 'from-emerald-500 to-emerald-700', f: 'Delivered' },
         ].map(s => (
-          <div key={s.label} className={'bg-gradient-to-br '+s.color+' rounded-2xl p-3 text-center cursor-pointer'} onClick={() => setFilter(s.label === 'Total' ? 'All' : s.label === 'Same Day' ? 'SameDay' : s.label === 'Cancelled at Door' ? 'CancelledDoor' : s.label === 'Failed Delivery' ? 'Failed' : s.label)}>
+          <div key={s.label} className={'bg-gradient-to-br '+s.color+' rounded-2xl p-3 text-center cursor-pointer'} onClick={() => setFilter(s.f)}>
             <div className='text-2xl font-bold text-white'>{s.value}</div>
             <div className='text-xs text-white/70 mt-1'>{s.label}</div>
           </div>
@@ -316,19 +311,15 @@ export default function OrdersPage() {
             <div className='flex items-center gap-4 col-span-3 mt-1 flex-wrap'>
               <label className='flex items-center gap-2 cursor-pointer'>
                 <input type='checkbox' checked={form.isSameDay} onChange={e=>setForm({...form,isSameDay:e.target.checked})} className='w-4 h-4 accent-orange-500' />
-                <span className='text-sm text-white'>âš¡ Same Day</span>
+                <span className='text-sm text-white'>Same Day</span>
               </label>
               <label className='flex items-center gap-2 cursor-pointer'>
                 <input type='checkbox' checked={form.isCancelledAtDoor} onChange={e=>setForm({...form,isCancelledAtDoor:e.target.checked})} className='w-4 h-4 accent-red-500' />
-                <span className='text-sm text-white'>ðŸšª Cancelled at Door</span>
+                <span className='text-sm text-white'>Failed / Cancelled at Door</span>
               </label>
               <label className='flex items-center gap-2 cursor-pointer'>
                 <input type='checkbox' checked={form.isExchange} onChange={e=>setForm({...form,isExchange:e.target.checked})} className='w-4 h-4 accent-blue-500' />
-                <span className='text-sm text-white'>ðŸ”„ Exchange</span>
-              </label>
-              <label className='flex items-center gap-2 cursor-pointer'>
-                <input type='checkbox' checked={form.isFailedDelivery} onChange={e=>setForm({...form,isFailedDelivery:e.target.checked})} className='w-4 h-4 accent-gray-500' />
-                <span className='text-sm text-white'>âŒ Failed Delivery</span>
+                <span className='text-sm text-white'>Exchange</span>
               </label>
             </div>
           </div>
@@ -341,9 +332,9 @@ export default function OrdersPage() {
 
       <div className='flex gap-3 mb-4 flex-wrap'>
         <input type='text' placeholder='Search by name, phone, order ID...' value={search} onChange={e=>setSearch(e.target.value)} className='bg-gray-900 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-2 text-sm flex-1 min-w-48 outline-none focus:border-violet-500' />
-        {['All','Pending','Confirmed','Processing','Delivered','Cancelled','SameDay','Exchange','CancelledDoor','Failed'].map(s => (
+        {['All','Pending','Confirmed','Processing','Delivered','Cancelled','SameDay','Exchange','FailedDoor'].map(s => (
           <button key={s} onClick={()=>setFilter(s)} className={'px-3 py-2 rounded-xl text-xs font-medium transition-all '+(filter===s?'bg-violet-600 text-white':'bg-gray-900 text-gray-400 border border-gray-700')}>
-            {s === 'SameDay' ? 'âš¡ Same Day' : s === 'Exchange' ? 'ðŸ”„ Exchange' : s === 'CancelledDoor' ? 'ðŸšª At Door' : s === 'Failed' ? 'âŒ Failed' : s}
+            {s === 'SameDay' ? 'Same Day' : s === 'FailedDoor' ? 'Failed / Door' : s}
           </button>
         ))}
       </div>
@@ -373,44 +364,29 @@ export default function OrdersPage() {
                   <td className='px-4 py-3'>
                     <p className='text-white font-medium'>{o.orderId}</p>
                     <p className='text-gray-500 text-xs'>{new Date(o.createdAt).toLocaleDateString()}</p>
-                    {o.pageName && <p className='text-violet-400 text-xs mt-0.5'>ðŸ“„ {o.pageName}</p>}
+                    {o.pageName && <p className='text-violet-400 text-xs mt-0.5'>{o.pageName}</p>}
                   </td>
                   <td className='px-4 py-3'>
                     <p className='text-white'>{o.customerName}</p>
                     <p className='text-gray-400 text-xs mb-1'>{o.phone}</p>
-                    {/* Action Buttons */}
                     <div className='flex items-center gap-1 flex-wrap mt-1'>
-                      {/* Call Button */}
                       {o.phone && (
-                        <a
-                          href={`tel:${o.phone}`}
-                          onClick={e => e.stopPropagation()}
-                          className='inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-2 py-0.5 rounded-full transition-all border border-transparent hover:border-emerald-500/30'
-                        >
+                        <a href={`tel:${o.phone}`} onClick={e => e.stopPropagation()} className='inline-flex items-center gap-1 text-xs text-emerald-400 hover:text-emerald-300 hover:bg-emerald-500/10 px-2 py-0.5 rounded-full transition-all border border-transparent hover:border-emerald-500/30'>
                           <Phone className='w-3 h-3' /><span>Call</span>
                         </a>
                       )}
-                      {/* WhatsApp Button */}
                       {o.phone && (
-                        <a
-                          href={`https://wa.me/977${o.phone.replace(/^0/, '')}?text=${encodeURIComponent(`à¤¨à¤®à¤¸à¥à¤¤à¥‡ ${o.customerName} à¤œà¥€! ðŸ˜Š\nà¤¤à¤ªà¤¾à¤ˆà¤‚à¤•à¥‹ order "${o.product}" (Rs ${o.price?.toLocaleString()}) confirm à¤­à¤¯à¥‹à¥¤\nà¤§à¤¨à¥à¤¯à¤µà¤¾à¤¦! - ${o.pageName || 'OlkoCMS'}`)}`}
-                          target='_blank'
-                          rel='noopener noreferrer'
-                          onClick={e => e.stopPropagation()}
-                          className='inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10 px-2 py-0.5 rounded-full transition-all border border-transparent hover:border-green-500/30'
-                        >
+                        <a href={`https://wa.me/977${o.phone.replace(/^0/, '')}?text=${encodeURIComponent(`Hello ${o.customerName}! Your order "${o.product}" (Rs ${o.price?.toLocaleString()}) has been confirmed. Order ID: ${o.orderId}. Thank you! - ${o.pageName || 'OlkoCMS'}`)}`} target='_blank' rel='noopener noreferrer' onClick={e => e.stopPropagation()} className='inline-flex items-center gap-1 text-xs text-green-400 hover:text-green-300 hover:bg-green-500/10 px-2 py-0.5 rounded-full transition-all border border-transparent hover:border-green-500/30'>
                           <svg className='w-3 h-3' fill='currentColor' viewBox='0 0 24 24'><path d='M17.472 14.382c-.297-.149-1.758-.867-2.03-.967-.273-.099-.471-.148-.67.15-.197.297-.767.966-.94 1.164-.173.199-.347.223-.644.075-.297-.15-1.255-.463-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.298-.347.446-.52.149-.174.198-.298.298-.497.099-.198.05-.371-.025-.52-.075-.149-.669-1.612-.916-2.207-.242-.579-.487-.5-.669-.51-.173-.008-.371-.01-.57-.01-.198 0-.52.074-.792.372-.272.297-1.04 1.016-1.04 2.479 0 1.462 1.065 2.875 1.213 3.074.149.198 2.096 3.2 5.077 4.487.709.306 1.262.489 1.694.625.712.227 1.36.195 1.871.118.571-.085 1.758-.719 2.006-1.413.248-.694.248-1.289.173-1.413-.074-.124-.272-.198-.57-.347m-5.421 7.403h-.004a9.87 9.87 0 01-5.031-1.378l-.361-.214-3.741.982.998-3.648-.235-.374a9.86 9.86 0 01-1.51-5.26c.001-5.45 4.436-9.884 9.888-9.884 2.64 0 5.122 1.03 6.988 2.898a9.825 9.825 0 012.893 6.994c-.003 5.45-4.437 9.884-9.885 9.884m8.413-18.297A11.815 11.815 0 0012.05 0C5.495 0 .16 5.335.157 11.892c0 2.096.547 4.142 1.588 5.945L.057 24l6.305-1.654a11.882 11.882 0 005.683 1.448h.005c6.554 0 11.89-5.335 11.893-11.893a11.821 11.821 0 00-3.48-8.413z'/></svg>
                           <span>WhatsApp</span>
                         </a>
                       )}
-                      {/* Messages Button */}
                       <CustomerMessageDrawer customerName={o.customerName} phone={o.phone} senderId={o.senderId} />
                     </div>
-                    {/* SMS Success */}
                     {smsSuccess === o.id && (
                       <div className='flex items-center gap-1 mt-1'>
                         <CheckCircle className='w-3 h-3 text-emerald-400' />
-                        <span className='text-xs text-emerald-400'>SMS à¤ªà¤ à¤¾à¤‡à¤¯à¥‹!</span>
+                        <span className='text-xs text-emerald-400'>SMS sent!</span>
                       </div>
                     )}
                   </td>
@@ -428,32 +404,26 @@ export default function OrdersPage() {
                     {o.customerShippingCharge !== null && o.customerShippingCharge !== undefined && <p className='text-blue-400 text-xs'>Customer: Rs {o.customerShippingCharge}</p>}
                   </td>
                   <td className='px-4 py-3'>
-                    {o.campaignId ? (
-                      <p className='text-violet-400 text-xs'>{campaigns.find(c => c.id === o.campaignId)?.name || o.campaignId}</p>
-                    ) : <p className='text-gray-600 text-xs'>-</p>}
+                    {o.campaignId ? <p className='text-violet-400 text-xs'>{campaigns.find(c => c.id === o.campaignId)?.name || o.campaignId}</p> : <p className='text-gray-600 text-xs'>-</p>}
                     {o.adId && <p className='text-gray-500 text-xs'>Ad: {o.adId}</p>}
                   </td>
                   <td className='px-4 py-3'>
                     <span className={'text-xs px-2 py-1 rounded-full '+(statusColors[o.status]||'')}>{o.status}</span>
-                    {confirmingSMS === o.id && <p className='text-xs text-amber-400 mt-1 flex items-center gap-1'><Loader2 className='w-3 h-3 animate-spin' />SMS...</p>}
+                    {confirmingSMS === o.id && <p className='text-xs text-amber-400 mt-1 flex items-center gap-1'><Loader2 className='w-3 h-3 animate-spin' />Sending SMS...</p>}
                   </td>
                   <td className='px-4 py-3'>
                     <div className='flex flex-col gap-1'>
                       <label className='flex items-center gap-1.5 cursor-pointer'>
                         <input type='checkbox' checked={o.isSameDay||false} onChange={e=>toggleFlag(o.id,'isSameDay',e.target.checked)} className='w-3 h-3 accent-orange-500' />
-                        <span className='text-xs text-gray-400'>âš¡ Same Day</span>
+                        <span className='text-xs text-gray-400'>Same Day</span>
                       </label>
                       <label className='flex items-center gap-1.5 cursor-pointer'>
                         <input type='checkbox' checked={o.isCancelledAtDoor||false} onChange={e=>toggleFlag(o.id,'isCancelledAtDoor',e.target.checked)} className='w-3 h-3 accent-red-500' />
-                        <span className='text-xs text-gray-400'>ðŸšª At Door</span>
+                        <span className='text-xs text-gray-400'>Failed / Door</span>
                       </label>
                       <label className='flex items-center gap-1.5 cursor-pointer'>
                         <input type='checkbox' checked={o.isExchange||false} onChange={e=>toggleFlag(o.id,'isExchange',e.target.checked)} className='w-3 h-3 accent-blue-500' />
-                        <span className='text-xs text-gray-400'>ðŸ”„ Exchange</span>
-                      </label>
-                      <label className='flex items-center gap-1.5 cursor-pointer'>
-                        <input type='checkbox' checked={o.isFailedDelivery||false} onChange={e=>toggleFlag(o.id,'isFailedDelivery',e.target.checked)} className='w-3 h-3 accent-gray-500' />
-                        <span className='text-xs text-gray-400'>âŒ Failed</span>
+                        <span className='text-xs text-gray-400'>Exchange</span>
                       </label>
                     </div>
                   </td>
@@ -475,8 +445,7 @@ export default function OrdersPage() {
         <span>Revenue: <span className='text-white font-medium'>Rs {filtered.reduce((a,o)=>a+(o.price*o.quantity),0).toLocaleString()}</span></span>
         <span>Profit: <span className='text-emerald-400 font-medium'>Rs {filtered.filter(o=>o.costPrice).reduce((a,o)=>a+((o.price-o.costPrice)*o.quantity),0).toLocaleString()}</span></span>
         <span>Same Day: <span className='text-orange-400 font-medium'>{filtered.filter(o=>o.isSameDay).length}</span></span>
-        <span>At Door: <span className='text-red-400 font-medium'>{filtered.filter(o=>o.isCancelledAtDoor).length}</span></span>
-        <span>Failed: <span className='text-gray-400 font-medium'>{filtered.filter(o=>o.isFailedDelivery).length}</span></span>
+        <span>Failed / Door: <span className='text-red-400 font-medium'>{filtered.filter(o=>o.isCancelledAtDoor||o.isFailedDelivery).length}</span></span>
       </div>
     </div>
   )
