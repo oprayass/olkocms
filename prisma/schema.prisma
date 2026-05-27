@@ -322,3 +322,24 @@ model Payment {
   periodEnd      DateTime
   createdAt      DateTime     @default(now())
 }
+model DarazScan {
+  id           String   @id @default(cuid())
+  darazOrderId String
+  productName  String
+  scanType     String
+  quantity     Int      @default(1)
+  scannedBy    String?
+  notes        String?
+  createdAt    DateTime @default(now())
+}
+
+model DarazAlert {
+  id           String    @id @default(cuid())
+  darazOrderId String
+  productName  String
+  alertType    String
+  status       String    @default("unresolved")
+  notes        String?
+  resolvedAt   DateTime?
+  createdAt    DateTime  @default(now())
+}
