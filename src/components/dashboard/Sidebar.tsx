@@ -1,4 +1,4 @@
-'use client'
+﻿'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
@@ -10,6 +10,7 @@ const nav = [
   { label: 'Products', href: '/dashboard/products', icon: '🛍️' },
   { label: 'Follow-ups', href: '/dashboard/followups', icon: '🔔' },
   { label: 'Ads', href: '/dashboard/ads', icon: '📢' },
+  { label: 'Daraz', href: '/dashboard/daraz', icon: '🛒' },
   { label: 'Staff', href: '/dashboard/staff', icon: '👥' },
   { label: 'Activity', href: '/dashboard/activity', icon: '📋' },
   { label: 'Courier', href: '/dashboard/courier', icon: '🚚' },
