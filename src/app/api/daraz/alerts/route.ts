@@ -1,26 +1,29 @@
-﻿import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+﻿import { NextRequest, NextResponse } from "next/server";
+import { prisma } from "@/lib/prisma";
 
 export async function GET() {
   try {
     const alerts = await prisma.darazAlert.findMany({
-      orderBy: { createdAt: 'desc' }
-    })
-    return NextResponse.json(alerts)
-  } catch (err) {
-    return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
+      orderBy: { createdAt: "desc" },
+    });
+    return NextResponse.json(alerts);
+  } catch {
+    return NextResponse.json({ error: "Failed to fetch alerts" }, { status: 500 });
   }
 }
 
-export async function PATCH(req: Request) {
+export async function PATCH(req: NextRequest) {
   try {
-    const { id, status, notes } = await req.json()
+    const { id, status } = await req.json();
     const alert = await prisma.darazAlert.update({
       where: { id },
-      data: { status, notes, resolvedAt: status === 'resolved' ? new Date() : null }
-    })
-    return NextResponse.json(alert)
-  } catch (err) {
-    return NextResponse.json({ error: 'Failed to update' }, { status: 500 })
+      data: {
+        status,
+        resolvedAt: status === "resolved" ? new Date() : null,
+      },
+    });
+    return NextResponse.json(alert);
+  } catch {
+    return NextResponse.json({ error: "Failed to update alert" }, { status: 500 });
   }
 }
