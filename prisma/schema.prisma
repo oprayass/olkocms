@@ -1,4 +1,4 @@
-generator client {
+﻿generator client {
   provider = "prisma-client-js"
 }
 
@@ -330,6 +330,10 @@ model DarazScan {
   quantity     Int      @default(1)
   scannedBy    String?
   notes        String?
+  trackingNo   String?
+  itemName     String?
+  price        Float?
+  customerName String?
   createdAt    DateTime @default(now())
 }
 
@@ -342,4 +346,27 @@ model DarazAlert {
   notes        String?
   resolvedAt   DateTime?
   createdAt    DateTime  @default(now())
+}
+
+
+
+
+model DarazClaim {
+  id              String    @id @default(cuid())
+  trackingNo      String
+  darazOrderId    String?
+  itemName        String?
+  price           Float?
+  customerName    String?
+  quantity        Int       @default(1)
+  returnType      String?
+  customerComment String?
+  qcComment       String?
+  staffClaim      String?
+  claimResult     String?
+  claimStatus     String    @default("pending")
+  scannedBy       String?
+  resolvedAt      DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
 }
