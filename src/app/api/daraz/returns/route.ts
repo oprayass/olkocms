@@ -9,17 +9,17 @@ export async function POST(req: NextRequest) {
     const { trackingNo, quantity, returnType, notes } = await req.json();
     if (!trackingNo) return NextResponse.json({ error: "Tracking number required" }, { status: 400 });
 
-    const scan = await prisma.darazScan.create({
+    const claim = await prisma.darazClaim.create({
       data: {
         trackingNo,
-        scanType: "return",
         quantity: quantity || 1,
         returnType,
-        notes,
+        staffClaim: notes,
+        claimStatus: "pending",
         scannedBy: session?.user?.name || "unknown",
       },
     });
-    return NextResponse.json(scan);
+    return NextResponse.json(claim);
   } catch (error) {
     return NextResponse.json({ error: "Failed to save return" }, { status: 500 });
   }
