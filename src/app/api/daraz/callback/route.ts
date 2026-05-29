@@ -16,6 +16,7 @@ export async function GET(req: NextRequest) {
     const appSecret = process.env.DARAZ_APP_SECRET!;
     const timestamp = Date.now().toString();
 
+    // Daraz signature: secret + sorted params + secret
     const signParams: Record<string, string> = {
       app_key: appKey,
       code,
@@ -23,7 +24,8 @@ export async function GET(req: NextRequest) {
       timestamp,
     };
     const sortedKeys = Object.keys(signParams).sort();
-    const signStr = sortedKeys.map(k => `${k}${signParams[k]}`).join("");
+    const paramStr = sortedKeys.map(k => `${k}${signParams[k]}`).join("");
+    const signStr = appSecret + paramStr + appSecret;
     const sign = crypto.createHmac("sha256", appSecret).update(signStr).digest("hex").toUpperCase();
 
     const params = new URLSearchParams({
@@ -42,7 +44,7 @@ export async function GET(req: NextRequest) {
     try {
       data = JSON.parse(text);
     } catch {
-      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent("parse_error:" + text.substring(0, 100))}`);
+      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent("parse:" + text.substring(0, 100))}`);
     }
 
     if (!data.access_token) {
