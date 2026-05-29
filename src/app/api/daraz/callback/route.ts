@@ -16,7 +16,7 @@ export async function GET(req: NextRequest) {
     const appSecret = process.env.DARAZ_APP_SECRET!;
     const timestamp = Date.now().toString();
 
-    // Daraz signature: secret + sorted params + secret
+    // Daraz signature: SHA256(secret + sorted_params + secret)
     const signParams: Record<string, string> = {
       app_key: appKey,
       code,
@@ -26,7 +26,7 @@ export async function GET(req: NextRequest) {
     const sortedKeys = Object.keys(signParams).sort();
     const paramStr = sortedKeys.map(k => `${k}${signParams[k]}`).join("");
     const signStr = appSecret + paramStr + appSecret;
-    const sign = crypto.createHmac("sha256", appSecret).update(signStr).digest("hex").toUpperCase();
+    const sign = crypto.createHash("sha256").update(signStr).digest("hex").toUpperCase();
 
     const params = new URLSearchParams({
       app_key: appKey,
