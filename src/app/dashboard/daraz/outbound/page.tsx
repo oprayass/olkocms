@@ -1,18 +1,32 @@
 ﻿"use client";
-import { useState } from "react";
-import { Package, CheckCircle, Clock } from "lucide-react";
+import { useState, useEffect } from "react";
+import { Package, CheckCircle, Clock, TrendingUp } from "lucide-react";
 
 interface ScanRecord {
-  id: string;
   trackingNo: string;
   scannedAt: string;
+}
+
+interface Stats {
+  todayCount: number;
+  totalCount: number;
+  recentScans: { trackingNo: string; createdAt: string; scannedBy: string }[];
 }
 
 export default function OutboundPage() {
   const [trackingNo, setTrackingNo] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
-  const [recentScans, setRecentScans] = useState<ScanRecord[]>([]);
+  const [sessionScans, setSessionScans] = useState<ScanRecord[]>([]);
+  const [stats, setStats] = useState<Stats>({ todayCount: 0, totalCount: 0, recentScans: [] });
+
+  const fetchStats = async () => {
+    const res = await fetch("/api/daraz/outbound");
+    const data = await res.json();
+    setStats(data);
+  };
+
+  useEffect(() => { fetchStats(); }, []);
 
   const handleScan = async () => {
     if (!trackingNo.trim()) return;
@@ -27,11 +41,12 @@ export default function OutboundPage() {
       const data = await res.json();
       if (res.ok) {
         setMessage({ type: "success", text: `Scanned: ${trackingNo.trim()}` });
-        setRecentScans((prev) => [
-          { id: data.id, trackingNo: trackingNo.trim(), scannedAt: new Date().toLocaleTimeString() },
+        setSessionScans((prev) => [
+          { trackingNo: trackingNo.trim(), scannedAt: new Date().toLocaleTimeString() },
           ...prev.slice(0, 9),
         ]);
         setTrackingNo("");
+        fetchStats();
       } else {
         setMessage({ type: "error", text: data.error || "Scan failed" });
       }
@@ -42,7 +57,7 @@ export default function OutboundPage() {
   };
 
   return (
-    <div className="p-6 space-y-6 max-w-xl">
+    <div className="p-6 space-y-6 max-w-2xl">
       <div className="flex items-center gap-3">
         <Package className="w-6 h-6 text-orange-400" />
         <div>
@@ -51,6 +66,23 @@ export default function OutboundPage() {
         </div>
       </div>
 
+      {/* Stats Cards */}
+      <div className="grid grid-cols-3 gap-4">
+        <div className="bg-gray-900 border border-orange-500/20 rounded-xl p-4 text-center">
+          <p className="text-3xl font-bold text-orange-400">{stats.todayCount}</p>
+          <p className="text-gray-400 text-xs mt-1">Today</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+          <p className="text-3xl font-bold text-white">{sessionScans.length}</p>
+          <p className="text-gray-400 text-xs mt-1">This Session</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+          <p className="text-3xl font-bold text-gray-300">{stats.totalCount}</p>
+          <p className="text-gray-400 text-xs mt-1">All Time</p>
+        </div>
+      </div>
+
+      {/* Scan Input */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
         <label className="text-sm text-gray-400 font-medium">Tracking Number</label>
         <input
@@ -78,22 +110,43 @@ export default function OutboundPage() {
         )}
       </div>
 
-      {recentScans.length > 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-6">
-          <div className="flex items-center gap-2 mb-4">
-            <Clock className="w-4 h-4 text-gray-400" />
-            <span className="text-sm text-gray-400 font-medium">Recent Scans (this session)</span>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        {/* Session Scans */}
+        {sessionScans.length > 0 && (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <Clock className="w-4 h-4 text-gray-400" />
+              <span className="text-sm text-gray-400 font-medium">This Session</span>
+            </div>
+            <div className="space-y-2">
+              {sessionScans.map((scan, i) => (
+                <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-800 last:border-0">
+                  <span className="text-white font-mono text-xs">{scan.trackingNo}</span>
+                  <span className="text-gray-500 text-xs">{scan.scannedAt}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          <div className="space-y-2">
-            {recentScans.map((scan, i) => (
-              <div key={i} className="flex items-center justify-between py-2 border-b border-gray-800 last:border-0">
-                <span className="text-white font-mono text-sm">{scan.trackingNo}</span>
-                <span className="text-gray-500 text-xs">{scan.scannedAt}</span>
-              </div>
-            ))}
+        )}
+
+        {/* Today's Scans from DB */}
+        {stats.recentScans.length > 0 && (
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+            <div className="flex items-center gap-2 mb-3">
+              <TrendingUp className="w-4 h-4 text-orange-400" />
+              <span className="text-sm text-gray-400 font-medium">Today&apos;s Scans</span>
+            </div>
+            <div className="space-y-2">
+              {stats.recentScans.map((scan, i) => (
+                <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-800 last:border-0">
+                  <span className="text-white font-mono text-xs">{scan.trackingNo}</span>
+                  <span className="text-gray-500 text-xs">{scan.scannedBy}</span>
+                </div>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        )}
+      </div>
     </div>
   );
 }
