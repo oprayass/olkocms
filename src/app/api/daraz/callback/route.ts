@@ -8,46 +8,59 @@ export async function GET(req: NextRequest) {
     const code = searchParams.get("code");
 
     if (!code) {
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard/settings/daraz-stores?error=no_code`);
+      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=no_code");
     }
 
     const appKey = process.env.DARAZ_APP_KEY!;
     const appSecret = process.env.DARAZ_APP_SECRET!;
-
-    // Generate signature
     const timestamp = Date.now().toString();
-    const params: Record<string, string> = {
+
+    // Daraz signature — params alphabetically sorted, no separator
+    const signParams: Record<string, string> = {
       app_key: appKey,
       code,
       sign_method: "sha256",
       timestamp,
     };
-    const sortedParams = Object.keys(params).sort().map(k => `${k}${params[k]}`).join("");
-    const signStr = sortedParams;
+    const sortedKeys = Object.keys(signParams).sort();
+    const signStr = sortedKeys.map(k => `${k}${signParams[k]}`).join("");
     const sign = crypto.createHmac("sha256", appSecret).update(signStr).digest("hex").toUpperCase();
 
-    // Get token from Daraz
-    const tokenUrl = `https://api.daraz.com.np/rest/auth/token/create`;
-    const body = new URLSearchParams({ ...params, sign });
-    const res = await fetch(tokenUrl, {
-      method: "POST",
-      body,
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    // Token URL for Nepal
+    const params = new URLSearchParams({
+      app_key: appKey,
+      code,
+      sign_method: "sha256",
+      timestamp,
+      sign,
     });
-    const data = await res.json();
 
-    if (!data.access_token) {
-      console.error("Daraz token error:", data);
-      return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard/settings/daraz-stores?error=token_failed`);
+    const tokenUrl = `https://api.daraz.com.np/rest/auth/token/create?${params.toString()}`;
+    console.log("Token URL:", tokenUrl);
+
+    const res = await fetch(tokenUrl, { method: "GET" });
+    const text = await res.text();
+    console.log("Token response:", text);
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      console.error("JSON parse error:", text);
+      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=token_failed");
     }
 
-    // Save to DB
-    const sellerId = data.account_platform || data.account || "unknown";
-    const storeName = data.account || `Store ${sellerId}`;
+    if (!data.access_token) {
+      console.error("No access token:", data);
+      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=token_failed");
+    }
+
+    const sellerId = data.account || data.account_platform || "unknown";
+    const storeName = data.account || `Store ${Date.now()}`;
     const tokenExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
 
     await prisma.darazStore.upsert({
-      where: { sellerId: sellerId },
+      where: { sellerId },
       update: {
         accessToken: data.access_token,
         refreshToken: data.refresh_token,
@@ -66,9 +79,9 @@ export async function GET(req: NextRequest) {
       },
     });
 
-    return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard/settings/daraz-stores?success=true`);
+    return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?success=true");
   } catch (error) {
     console.error("Callback error:", error);
-    return NextResponse.redirect(`${process.env.NEXTAUTH_URL}/dashboard/settings/daraz-stores?error=unknown`);
+    return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=unknown");
   }
 }

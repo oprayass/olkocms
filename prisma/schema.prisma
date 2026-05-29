@@ -156,7 +156,7 @@ model Transaction {
 model DarazStore {
   id           String    @id @default(cuid())
   storeName    String
-  sellerId     String?
+  sellerId     String?   @unique
   accessToken  String?
   refreshToken String?
   tokenExpiry  DateTime?
