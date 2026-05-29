@@ -1,4 +1,4 @@
-export const dynamic = "force-dynamic";
+﻿export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
@@ -16,7 +16,6 @@ export async function GET(req: NextRequest) {
     const appSecret = process.env.DARAZ_APP_SECRET!;
     const timestamp = Date.now().toString();
 
-    // Daraz signature — params alphabetically sorted, no separator
     const signParams: Record<string, string> = {
       app_key: appKey,
       code,
@@ -27,7 +26,6 @@ export async function GET(req: NextRequest) {
     const signStr = sortedKeys.map(k => `${k}${signParams[k]}`).join("");
     const sign = crypto.createHmac("sha256", appSecret).update(signStr).digest("hex").toUpperCase();
 
-    // Token URL for Nepal
     const params = new URLSearchParams({
       app_key: appKey,
       code,
@@ -37,23 +35,19 @@ export async function GET(req: NextRequest) {
     });
 
     const tokenUrl = `https://api.daraz.com.np/rest/auth/token/create?${params.toString()}`;
-    console.log("Token URL:", tokenUrl);
-
     const res = await fetch(tokenUrl, { method: "GET" });
     const text = await res.text();
-    console.log("Token response:", text);
 
     let data;
     try {
       data = JSON.parse(text);
     } catch {
-      console.error("JSON parse error:", text);
-      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=token_failed");
+      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent("parse_error:" + text.substring(0, 100))}`);
     }
 
     if (!data.access_token) {
-      console.error("No access token:", data);
-      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=token_failed");
+      const errMsg = encodeURIComponent(JSON.stringify(data).substring(0, 200));
+      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${errMsg}`);
     }
 
     const sellerId = data.account || data.account_platform || "unknown";
@@ -82,7 +76,7 @@ export async function GET(req: NextRequest) {
 
     return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?success=true");
   } catch (error) {
-    console.error("Callback error:", error);
-    return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=unknown");
+    const errMsg = encodeURIComponent(String(error).substring(0, 200));
+    return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${errMsg}`);
   }
 }
