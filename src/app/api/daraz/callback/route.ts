@@ -14,20 +14,22 @@ export async function GET(req: NextRequest) {
 
     const appKey = process.env.DARAZ_APP_KEY!;
     const appSecret = process.env.DARAZ_APP_SECRET!;
+    const apiPath = "/auth/token/create";
     const timestamp = Date.now().toString();
 
-    const signParams: Record<string, string> = {
+    // Daraz signature: HMAC-SHA256(apiPath + sorted_params)
+    const params: Record<string, string> = {
       app_key: appKey,
       code,
       sign_method: "sha256",
       timestamp,
     };
-    const sortedKeys = Object.keys(signParams).sort();
-    const paramStr = sortedKeys.map(k => `${k}${signParams[k]}`).join("");
-    const signStr = appSecret + paramStr + appSecret;
-    const sign = crypto.createHash("sha256").update(signStr).digest("hex").toUpperCase();
+    const sortedKeys = Object.keys(params).sort();
+    const concatenated = sortedKeys.map(k => `${k}${params[k]}`).join("");
+    const signStr = apiPath + concatenated;
+    const sign = crypto.createHmac("sha256", appSecret).update(signStr, "utf8").digest("hex").toUpperCase();
 
-    const params = new URLSearchParams({
+    const queryParams = new URLSearchParams({
       app_key: appKey,
       code,
       sign_method: "sha256",
@@ -35,8 +37,7 @@ export async function GET(req: NextRequest) {
       sign,
     });
 
-    // Nepal uses api.daraz.pk internally
-    const tokenUrl = `https://api.daraz.pk/rest/auth/token/create?${params.toString()}`;
+    const tokenUrl = `https://api.daraz.com.np/rest${apiPath}?${queryParams.toString()}`;
     const res = await fetch(tokenUrl, { method: "GET" });
     const text = await res.text();
 
@@ -44,7 +45,7 @@ export async function GET(req: NextRequest) {
     try {
       data = JSON.parse(text);
     } catch {
-      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent("parse:" + text.substring(0, 100))}`);
+      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent("parse:" + text.substring(0, 150))}`);
     }
 
     if (!data.access_token) {
@@ -54,7 +55,7 @@ export async function GET(req: NextRequest) {
 
     const sellerId = data.account || data.account_platform || "unknown";
     const storeName = data.account || `Store ${Date.now()}`;
-    const tokenExpiry = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+    const tokenExpiry = new Date(Date.now() + (data.expires_in || 2592000) * 1000);
 
     await prisma.darazStore.upsert({
       where: { sellerId },
