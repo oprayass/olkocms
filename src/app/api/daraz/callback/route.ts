@@ -16,7 +16,6 @@ export async function GET(req: NextRequest) {
     const appSecret = process.env.DARAZ_APP_SECRET!;
     const timestamp = Date.now().toString();
 
-    // Daraz signature: SHA256(secret + sorted_params + secret)
     const signParams: Record<string, string> = {
       app_key: appKey,
       code,
@@ -36,7 +35,8 @@ export async function GET(req: NextRequest) {
       sign,
     });
 
-    const tokenUrl = `https://api.daraz.com.np/rest/auth/token/create?${params.toString()}`;
+    // Nepal uses api.daraz.pk internally
+    const tokenUrl = `https://api.daraz.pk/rest/auth/token/create?${params.toString()}`;
     const res = await fetch(tokenUrl, { method: "GET" });
     const text = await res.text();
 
