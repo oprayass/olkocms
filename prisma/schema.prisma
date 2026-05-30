@@ -330,8 +330,8 @@ model Payment {
 }
 model DarazScan {
   id           String   @id @default(cuid())
-  darazOrderId String
-  productName  String
+  darazOrderId String?
+  productName  String?
   scanType     String
   quantity     Int      @default(1)
   scannedBy    String?
