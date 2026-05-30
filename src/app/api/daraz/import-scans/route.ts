@@ -4,11 +4,37 @@ import * as XLSX from "xlsx";
 
 export const dynamic = "force-dynamic";
 
+function safeFloat(val: unknown): number | null {
+  if (val === null || val === undefined || val === "") return null;
+  const n = parseFloat(String(val).replace(/[^0-9.]/g, ""));
+  return isNaN(n) ? null : n;
+}
+
+function safeInt(val: unknown, def = 1): number {
+  if (val === null || val === undefined || val === "") return def;
+  const n = parseInt(String(val));
+  return isNaN(n) ? def : n;
+}
+
+function safeStr(val: unknown): string | null {
+  if (val === null || val === undefined) return null;
+  const s = String(val).trim();
+  return s === "" || s === "null" ? null : s;
+}
+
+function safeDate(val: unknown): Date | null {
+  if (!val) return null;
+  try {
+    const d = new Date(val as string);
+    return isNaN(d.getTime()) ? null : d;
+  } catch { return null; }
+}
+
 export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
-    const importType = formData.get("type") as string; // "outbound" | "inbound" | "claim"
+    const importType = formData.get("type") as string;
 
     if (!file || !importType) {
       return NextResponse.json({ error: "file and type required" }, { status: 400 });
@@ -22,110 +48,92 @@ export async function POST(req: NextRequest) {
     let created = 0;
     let skipped = 0;
     let notFound = 0;
+    const errors: string[] = [];
 
     for (const row of rows) {
-      // Order number — different column names
-      const orderNum = String(
-        row["Order Number"] ?? row["Order number "] ?? row["Order Number "] ?? ""
-      ).trim().replace(/\.0$/, "");
+      try {
+        const orderNum = safeStr(
+          row["Order Number"] ?? row["Order number "] ?? row["Order Number "]
+        )?.replace(/\.0$/, "");
 
-      if (!orderNum || orderNum === "null") { skipped++; continue; }
+        if (!orderNum) { skipped++; continue; }
 
-      // DarazOrder मा match खोज्ने
-      const darazOrder = await prisma.darazOrder.findFirst({
-        where: { darazOrderId: orderNum },
-      });
-
-      const timestamp = row["Timestamp"] as Date | null;
-      const scanDate = timestamp ? new Date(timestamp) : new Date();
-
-      if (importType === "outbound") {
-        // Duplicate check
-        const exists = await prisma.darazScan.findFirst({
-          where: { darazOrderId: orderNum, scanType: "outbound" },
-        });
-        if (exists) { skipped++; continue; }
-
-        await prisma.darazScan.create({
-          data: {
-            scanType: "outbound",
-            darazOrderId: orderNum,
-            trackingNo: darazOrder?.trackingNo ?? null,
-            productName: darazOrder?.product ?? null,
-            itemName: darazOrder?.product ?? null,
-            storeId: darazOrder?.storeId ?? null,
-            scannedBy: "excel-import",
-            createdAt: scanDate,
-          },
-        });
-        created++;
-
-      } else if (importType === "inbound") {
-        const exists = await prisma.darazScan.findFirst({
-          where: { darazOrderId: orderNum, scanType: "inbound" },
-        });
-        if (exists) { skipped++; continue; }
-
-        const productName = String(row["Product Name "] ?? row["Product Name"] ?? "").trim();
-        const storeName = String(row["Store Name"] ?? row["Store Name "] ?? "").trim();
-        const price = parseFloat(String(row["Product Price *"] ?? row["product price "] ?? "0")) || null;
-        const qty = parseInt(String(row["Quantity "] ?? row["Product Quantity"] ?? "1")) || 1;
-
-        await prisma.darazScan.create({
-          data: {
-            scanType: "inbound",
-            darazOrderId: orderNum,
-            trackingNo: darazOrder?.trackingNo ?? null,
-            productName: productName || darazOrder?.product || null,
-            itemName: productName || darazOrder?.product || null,
-            price: price,
-            quantity: qty,
-            storeId: darazOrder?.storeId ?? storeName ?? null,
-            scannedBy: String(row["Checked By"] ?? "excel-import").trim(),
-            createdAt: scanDate,
-          },
-        });
-        created++;
-
-      } else if (importType === "claim") {
-        const exists = await prisma.darazClaim.findFirst({
+        const darazOrder = await prisma.darazOrder.findFirst({
           where: { darazOrderId: orderNum },
         });
-        if (exists) { skipped++; continue; }
-
-        const productName = String(row["Product Name "] ?? row["Product Name"] ?? "").trim();
-        const storeName = String(row["Store Name "] ?? row["Store Name"] ?? "").trim();
-        const price = parseFloat(String(row["product price "] ?? "0")) || null;
-        const qty = parseInt(String(row["Product Quantity"] ?? "1")) || 1;
-        const qcReason = String(row["Daraz QC Reason"] ?? "").trim() || null;
-        const customerReason = String(row["Customer return Reason "] ?? "").trim() || null;
-        const claimDateRaw = row["Claim Raised  Date "] as Date | null;
-        const returnDateRaw = row["Return Recived Date"] as Date | null;
-
-        await prisma.darazClaim.create({
-          data: {
-            trackingNo: darazOrder?.trackingNo ?? orderNum,
-            darazOrderId: orderNum,
-            itemName: productName || darazOrder?.product || null,
-            price: price,
-            quantity: qty,
-            storeId: darazOrder?.storeId ?? storeName ?? null,
-            qcComment: qcReason,
-            customerComment: customerReason,
-            claimDate: claimDateRaw ? new Date(claimDateRaw) : null,
-            orderDate: returnDateRaw ? new Date(returnDateRaw) : null,
-            claimDecision: "undecided",
-            scannedBy: "excel-import",
-          },
-        });
-        created++;
         if (!darazOrder) notFound++;
-      }
 
-      if (!darazOrder) notFound++;
+        const scanDate = safeDate(row["Timestamp"]) ?? new Date();
+
+        if (importType === "outbound") {
+          const exists = await prisma.darazScan.findFirst({
+            where: { darazOrderId: orderNum, scanType: "outbound" },
+          });
+          if (exists) { skipped++; continue; }
+
+          await prisma.darazScan.create({
+            data: {
+              scanType: "outbound",
+              darazOrderId: orderNum,
+              trackingNo: darazOrder?.trackingNo ?? null,
+              itemName: darazOrder?.product ?? null,
+              storeId: darazOrder?.storeId ?? null,
+              scannedBy: "excel-import",
+            },
+          });
+          created++;
+
+        } else if (importType === "inbound") {
+          const exists = await prisma.darazScan.findFirst({
+            where: { darazOrderId: orderNum, scanType: "inbound" },
+          });
+          if (exists) { skipped++; continue; }
+
+          await prisma.darazScan.create({
+            data: {
+              scanType: "inbound",
+              darazOrderId: orderNum,
+              trackingNo: darazOrder?.trackingNo ?? null,
+              itemName: safeStr(row["Product Name "] ?? row["Product Name"]) ?? darazOrder?.product ?? null,
+              price: safeFloat(row["Product Price *"] ?? row["product price "]),
+              quantity: safeInt(row["Quantity "] ?? row["Product Quantity"]),
+              storeId: darazOrder?.storeId ?? safeStr(row["Store Name"] ?? row["Store Name "]),
+              scannedBy: safeStr(row["Checked By"]) ?? "excel-import",
+            },
+          });
+          created++;
+
+        } else if (importType === "claim") {
+          const exists = await prisma.darazClaim.findFirst({
+            where: { darazOrderId: orderNum },
+          });
+          if (exists) { skipped++; continue; }
+
+          await prisma.darazClaim.create({
+            data: {
+              trackingNo: darazOrder?.trackingNo ?? orderNum,
+              darazOrderId: orderNum,
+              itemName: safeStr(row["Product Name "] ?? row["Product Name"]) ?? darazOrder?.product ?? null,
+              price: safeFloat(row["product price "]),
+              quantity: safeInt(row["Product Quantity"]),
+              storeId: darazOrder?.storeId ?? safeStr(row["Store Name "] ?? row["Store Name"]),
+              qcComment: safeStr(row["Daraz QC Reason"]),
+              customerComment: safeStr(row["Customer return Reason "]),
+              claimDate: safeDate(row["Claim Raised  Date "]),
+              orderDate: safeDate(row["Return Recived Date"]),
+              claimDecision: "undecided",
+              scannedBy: "excel-import",
+            },
+          });
+          created++;
+        }
+      } catch (rowErr) {
+        errors.push(String(rowErr).substring(0, 100));
+        if (errors.length >= 3) break;
+      }
     }
 
-    return NextResponse.json({ created, skipped, notFound, total: rows.length });
+    return NextResponse.json({ created, skipped, notFound, total: rows.length, errors });
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 200) }, { status: 500 });
   }
