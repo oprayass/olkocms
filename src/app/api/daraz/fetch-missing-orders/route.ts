@@ -40,13 +40,19 @@ export async function POST(req: NextRequest) {
       where: { isActive: true, accessToken: { not: null } },
     });
 
-    // alert भएका outbound orders मात्र (darazOrderId सहित)
-    const alertOrders = await prisma.darazAlert.findMany({
-      where: { alertType: "outbound_not_delivered", darazOrderId: { not: "unknown" } },
+    // last 10 days को outbound scans (darazOrderId सहित)
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    const allScans = await prisma.darazScan.findMany({
+      where: {
+        scanType: "outbound",
+        darazOrderId: { not: null },
+        createdAt: { gte: tenDaysAgo },
+      },
       select: { darazOrderId: true },
       distinct: ["darazOrderId"],
+      orderBy: { createdAt: "desc" },
     });
-    const allScans = alertOrders;
 
     // already DarazOrder मा भएका हटाउने
     const existingOrders = await prisma.darazOrder.findMany({
