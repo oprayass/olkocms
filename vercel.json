@@ -6,7 +6,7 @@
     },
     {
       "path": "/api/daraz/orders/fetch",
-      "schedule": "0 0 * * *"
+      "schedule": "0 1 * * *"
     }
   ]
 }
