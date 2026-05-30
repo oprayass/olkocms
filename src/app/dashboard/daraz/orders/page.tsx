@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { RefreshCw, Search, Package } from "lucide-react";
 import OrderDetailPopup from "@/components/OrderDetailPopup";
+import { resolveStoreName } from "@/lib/storeMap";
 
 interface DarazOrder {
   id: string;
@@ -119,8 +120,7 @@ export default function DarazOrdersPage() {
   };
 
   const storeName = (id: string | null) => {
-    const s = stores.find((s) => s.id === id);
-    return s ? s.storeName : "Unknown";
+    return resolveStoreName(id);
   };
 
   let filtered = orders.filter((o) => {
@@ -212,7 +212,7 @@ export default function DarazOrdersPage() {
         <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)}
           className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm">
           <option value="all">All Stores</option>
-          {stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}
+          {stores.map((s) => <option key={s.id} value={s.id}>{resolveStoreName(s.id)}</option>)}
         </select>
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
           className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm">
