@@ -65,7 +65,7 @@ export async function POST(req: NextRequest) {
       },
     });
     return NextResponse.json({ success: true, scan });
-  } catch {
-    return NextResponse.json({ error: "Failed to save scan" }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: "Failed to save scan: " + String(err).substring(0, 150) }, { status: 500 });
   }
 }
