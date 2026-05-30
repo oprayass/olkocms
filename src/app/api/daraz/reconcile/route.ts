@@ -8,60 +8,84 @@ export async function POST() {
     let created = 0;
     let skipped = 0;
 
-    // 1. Outbound scans जसको trackingNo DarazClaim मा छैन
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+
+    // 1. Outbound scans — DarazOrder मा status ready_to_ship नै छ वा order नै छैन
     const outboundScans = await prisma.darazScan.findMany({
       where: { scanType: "outbound", trackingNo: { not: null } },
     });
 
     for (const scan of outboundScans) {
       const tracking = scan.trackingNo!;
-      const claim = await prisma.darazClaim.findFirst({
+
+      const order = await prisma.darazOrder.findFirst({
         where: { trackingNo: tracking },
       });
-      if (!claim) {
-        const existing = await prisma.darazAlert.findFirst({
-          where: { alertType: "outbound_not_in_daraz", notes: { contains: tracking } },
-        });
-        if (existing) { skipped++; continue; }
-        await prisma.darazAlert.create({
-          data: {
-            darazOrderId: scan.darazOrderId ?? "unknown",
-            productName: scan.itemName ?? scan.productName ?? "Unknown Item",
-            alertType: "outbound_not_in_daraz",
-            status: "unresolved",
-            notes: `Tracking: ${tracking} — outbound scan गरियो तर DarazClaim मा record छैन। Scanned by: ${scan.scannedBy ?? "unknown"} at ${scan.createdAt.toISOString()}`,
-          },
-        });
-        created++;
-      } else { skipped++; }
+
+      const shouldAlert =
+        !order || order.status === "ready_to_ship" || order.status === "pending";
+
+      if (!shouldAlert) { skipped++; continue; }
+
+      const existing = await prisma.darazAlert.findFirst({
+        where: {
+          alertType: "outbound_not_delivered",
+          notes: { contains: tracking },
+          status: { not: "resolved" },
+        },
+      });
+      if (existing) { skipped++; continue; }
+
+      const isLost = scan.createdAt < twoMonthsAgo;
+
+      await prisma.darazAlert.create({
+        data: {
+          darazOrderId: scan.darazOrderId ?? order?.darazOrderId ?? "unknown",
+          productName: scan.itemName ?? scan.productName ?? order?.product ?? "Unknown Item",
+          alertType: "outbound_not_delivered",
+          status: isLost ? "lost" : "unresolved",
+          notes: `Tracking: ${tracking} — outbound scan भयो तर Daraz मा delivery update भएन। Order status: ${order?.status ?? "not found"}। Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
+        },
+      });
+      created++;
     }
 
-    // 2. DarazClaims जसको inbound scan छैन
-    const claims = await prisma.darazClaim.findMany({
-      where: { trackingNo: { not: null } },
+    // 2. DarazOrders मा return/failed — inbound scan छैन
+    const returnOrders = await prisma.darazOrder.findMany({
+      where: {
+        status: { in: ["returned", "failed_delivery", "shipped_back", "shipped_back_success"] },
+        trackingNo: { not: null },
+      },
     });
 
-    for (const claim of claims) {
-      const tracking = claim.trackingNo;
+    for (const order of returnOrders) {
+      const tracking = order.trackingNo!;
+
       const inbound = await prisma.darazScan.findFirst({
         where: { scanType: "inbound", trackingNo: tracking },
       });
-      if (!inbound) {
-        const existing = await prisma.darazAlert.findFirst({
-          where: { alertType: "daraz_return_not_scanned", notes: { contains: tracking } },
-        });
-        if (existing) { skipped++; continue; }
-        await prisma.darazAlert.create({
-          data: {
-            darazOrderId: claim.darazOrderId ?? "unknown",
-            productName: claim.itemName ?? "Unknown Item",
-            alertType: "daraz_return_not_scanned",
-            status: "unresolved",
-            notes: `Tracking: ${tracking} — DarazClaim छ तर inbound scan भएन। Store: ${claim.storeId ?? "unknown"}`,
-          },
-        });
-        created++;
-      } else { skipped++; }
+      if (inbound) { skipped++; continue; }
+
+      const existing = await prisma.darazAlert.findFirst({
+        where: {
+          alertType: "return_not_received",
+          notes: { contains: tracking },
+          status: { not: "resolved" },
+        },
+      });
+      if (existing) { skipped++; continue; }
+
+      await prisma.darazAlert.create({
+        data: {
+          darazOrderId: order.darazOrderId,
+          productName: order.product,
+          alertType: "return_not_received",
+          status: "unresolved",
+          notes: `Tracking: ${tracking} — Daraz मा status "${order.status}" छ तर store मा inbound scan भएन। Store: ${order.storeId ?? "unknown"}। Order date: ${order.orderDate?.toLocaleDateString() ?? "unknown"}`,
+        },
+      });
+      created++;
     }
 
     // 3. Wrong-store inbound scans
@@ -72,16 +96,21 @@ export async function POST() {
     for (const scan of wrongStoreScans) {
       const tracking = scan.trackingNo ?? scan.id;
       const existing = await prisma.darazAlert.findFirst({
-        where: { alertType: "wrong_store", notes: { contains: tracking } },
+        where: {
+          alertType: "wrong_store",
+          notes: { contains: tracking },
+          status: { not: "resolved" },
+        },
       });
       if (existing) { skipped++; continue; }
+
       await prisma.darazAlert.create({
         data: {
           darazOrderId: scan.darazOrderId ?? "unknown",
           productName: scan.itemName ?? scan.productName ?? "Unknown Item",
           alertType: "wrong_store",
           status: "unresolved",
-          notes: `Tracking: ${tracking} — गलत store मा inbound scan भयो। Scanned by: ${scan.scannedBy ?? "unknown"}`,
+          notes: `Tracking: ${tracking} — गलत store मा inbound scan भयो। Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
         },
       });
       created++;

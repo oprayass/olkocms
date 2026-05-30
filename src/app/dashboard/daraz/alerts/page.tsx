@@ -13,23 +13,73 @@ interface Alert {
   createdAt: string;
 }
 
-const ALERT_COLORS: Record<string, string> = {
+const STATUS_COLORS: Record<string, string> = {
   unresolved: "bg-red-500/10 text-red-400 border-red-500/20",
   investigating: "bg-amber-500/10 text-amber-400 border-amber-500/20",
   resolved: "bg-emerald-500/10 text-emerald-400 border-emerald-500/20",
+  lost: "bg-gray-500/10 text-gray-400 border-gray-500/20",
 };
 
 const ALERT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  outbound_not_in_daraz: { label: "Outbound → No Claim", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
-  daraz_return_not_scanned: { label: "Return → Not Scanned", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  outbound_not_delivered: { label: "Outbound → Not Delivered", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  return_not_received: { label: "Return → Not Received", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
   wrong_store: { label: "Wrong Store / गलत स्टोर", color: "bg-red-500/10 text-red-400 border-red-500/20" },
 };
+
+const DATE_FILTERS = [
+  { key: "today", label: "Today" },
+  { key: "yesterday", label: "Yesterday" },
+  { key: "this_week", label: "This Week" },
+  { key: "last_week", label: "Last Week" },
+  { key: "this_month", label: "This Month" },
+  { key: "last_month", label: "Last Month" },
+  { key: "lost", label: "🔴 Lost (2m+)" },
+  { key: "all", label: "All Time" },
+];
+
+function getDateRange(filter: string): { from: Date | null; to: Date | null; lostOnly: boolean } {
+  const now = new Date();
+  if (filter === "lost") return { from: null, to: null, lostOnly: true };
+  if (filter === "all") return { from: null, to: null, lostOnly: false };
+
+  const start = new Date(); start.setHours(0, 0, 0, 0);
+  const end = new Date(); end.setHours(23, 59, 59, 999);
+
+  if (filter === "today") return { from: start, to: end, lostOnly: false };
+  if (filter === "yesterday") {
+    const f = new Date(start); f.setDate(f.getDate() - 1);
+    const t = new Date(end); t.setDate(t.getDate() - 1);
+    return { from: f, to: t, lostOnly: false };
+  }
+  if (filter === "this_week") {
+    const day = now.getDay();
+    const f = new Date(start); f.setDate(f.getDate() - day);
+    return { from: f, to: end, lostOnly: false };
+  }
+  if (filter === "last_week") {
+    const day = now.getDay();
+    const f = new Date(start); f.setDate(f.getDate() - day - 7);
+    const t = new Date(start); t.setDate(t.getDate() - day - 1); t.setHours(23,59,59,999);
+    return { from: f, to: t, lostOnly: false };
+  }
+  if (filter === "this_month") {
+    const f = new Date(now.getFullYear(), now.getMonth(), 1);
+    return { from: f, to: end, lostOnly: false };
+  }
+  if (filter === "last_month") {
+    const f = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+    const t = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
+    return { from: f, to: t, lostOnly: false };
+  }
+  return { from: null, to: null, lostOnly: false };
+}
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState("unresolved");
+  const [statusFilter, setStatusFilter] = useState("unresolved");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [dateFilter, setDateFilter] = useState("all");
   const [updating, setUpdating] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<{ created: number; skipped: number } | null>(null);
@@ -69,11 +119,24 @@ export default function AlertsPage() {
     setUpdating(null);
   };
 
-  const filtered = alerts
-    .filter((a) => filter === "all" || a.status === filter)
-    .filter((a) => typeFilter === "all" || a.alertType === typeFilter);
+  const twoMonthsAgo = new Date();
+  twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
 
-  const unresolvedCount = alerts.filter((a) => a.status === "unresolved").length;
+  const applyDateFilter = (a: Alert) => {
+    const { from, to, lostOnly } = getDateRange(dateFilter);
+    if (lostOnly) return a.status === "lost" || new Date(a.createdAt) < twoMonthsAgo;
+    if (!from) return true;
+    const d = new Date(a.createdAt);
+    return d >= from && d <= to!;
+  };
+
+  const filtered = alerts
+    .filter((a) => statusFilter === "all" || a.status === statusFilter)
+    .filter((a) => typeFilter === "all" || a.alertType === typeFilter)
+    .filter(applyDateFilter);
+
+  const activeCount = (s: string) => alerts.filter((a) => a.status === s).length;
+  const unresolvedCount = activeCount("unresolved") + activeCount("lost");
 
   return (
     <div className="p-6 space-y-6">
@@ -113,7 +176,7 @@ export default function AlertsPage() {
         <div className={`rounded-xl border p-4 text-sm ${reconcileResult.created === -1 ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"}`}>
           {reconcileResult.created === -1
             ? "❌ Reconciliation failed — check console"
-            : `✅ Reconciliation complete — ${reconcileResult.created} new alerts created, ${reconcileResult.skipped} skipped (already existed or matched)`}
+            : `✅ Reconciliation complete — ${reconcileResult.created} new alerts created, ${reconcileResult.skipped} skipped`}
         </div>
       )}
 
@@ -134,19 +197,34 @@ export default function AlertsPage() {
         })}
       </div>
 
-      {/* Filters */}
+      {/* Date filter */}
       <div className="flex gap-2 flex-wrap">
-        {["unresolved", "investigating", "resolved", "all"].map((f) => (
+        {DATE_FILTERS.map((f) => (
+          <button
+            key={f.key}
+            onClick={() => setDateFilter(f.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
+              dateFilter === f.key ? "bg-blue-600 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
+            }`}
+          >
+            {f.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Status filter */}
+      <div className="flex gap-2 flex-wrap">
+        {["unresolved", "investigating", "lost", "resolved", "all"].map((f) => (
           <button
             key={f}
-            onClick={() => setFilter(f)}
+            onClick={() => setStatusFilter(f)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
-              filter === f ? "bg-gray-700 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
+              statusFilter === f ? "bg-gray-700 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
             }`}
           >
             {f}
             {f !== "all" && (
-              <span className="ml-1.5 text-gray-500">({alerts.filter((a) => a.status === f).length})</span>
+              <span className="ml-1.5 text-gray-500">({activeCount(f)})</span>
             )}
           </button>
         ))}
@@ -158,19 +236,21 @@ export default function AlertsPage() {
       ) : filtered.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
           <CheckCircle className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
-          <p className="text-gray-400 text-sm">No {filter} alerts</p>
+          <p className="text-gray-400 text-sm">No alerts for this filter</p>
         </div>
       ) : (
         <div className="space-y-3">
           {filtered.map((alert) => {
             const typeInfo = ALERT_TYPE_LABELS[alert.alertType];
+            const isLost = alert.status === "lost" || new Date(alert.createdAt) < twoMonthsAgo;
             return (
-              <div key={alert.id} className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <div key={alert.id} className={`bg-gray-900 border rounded-xl p-4 ${isLost ? "border-gray-600" : "border-gray-800"}`}>
                 <div className="flex items-start justify-between gap-4">
                   <div className="space-y-1 flex-1">
                     <div className="flex items-center gap-2 flex-wrap">
+                      {isLost && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded border border-gray-600">🔴 LOST</span>}
                       <span className="text-white font-medium text-sm">{alert.productName}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded border ${ALERT_COLORS[alert.status] ?? ALERT_COLORS.unresolved}`}>
+                      <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_COLORS[alert.status] ?? STATUS_COLORS.unresolved}`}>
                         {alert.status}
                       </span>
                       {typeInfo && (
