@@ -1,9 +1,12 @@
-﻿import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 
 export async function GET() {
   try {
+    // reconciliation-fetched orders (customerName "—") exclude गर्ने
+    // ती Orders page मा होइन, reconcile को लागि मात्र हुन्
     const orders = await prisma.darazOrder.findMany({
+      where: { NOT: { customerName: "—" } },
       orderBy: { createdAt: 'desc' }
     })
     return NextResponse.json(orders)
