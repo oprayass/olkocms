@@ -61,19 +61,19 @@ export default function ReturnsListPage() {
 
   const handleFetch = async () => {
     setFetching(true);
-    setMessage("Fetching returns from all stores...");
-    try {
-      const res = await fetch("/api/daraz/returns/fetch");
-      const data = await res.json();
-      if (data.success) {
-        setMessage(`Fetched ${data.totalSaved} returns from ${data.stores} stores!`);
-        await loadData();
-      } else {
-        setMessage("Fetch failed: " + (data.error || "unknown"));
-      }
-    } catch {
-      setMessage("Fetch failed");
+    let grandTotal = 0;
+    let done = 0;
+    for (const s of stores) {
+      setMessage(`Fetching ${s.storeName} (${done + 1}/${stores.length})...`);
+      try {
+        const res = await fetch(`/api/daraz/returns/fetch?store=${s.id}`);
+        const data = await res.json();
+        if (data.success) grandTotal += data.totalSaved || 0;
+      } catch {}
+      done++;
     }
+    setMessage(`Done! Fetched/updated ${grandTotal} returns with tracking from ${stores.length} stores.`);
+    await loadData();
     setFetching(false);
   };
 
