@@ -370,6 +370,7 @@ model DarazClaim {
   claimStatus     String    @default("pending")
   scannedBy       String?
   resolvedAt      DateTime?
+  storeId         String?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }
