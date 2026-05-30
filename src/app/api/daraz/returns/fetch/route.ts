@@ -100,7 +100,7 @@ export async function GET(req: NextRequest) {
                 data: {
                   trackingNo, returnType: actualStatus, customerName, itemName,
                   customerComment: reason || existing.customerComment,
-                  qcComment: shipmentProvider || existing.qcComment,
+                  qcComment: existing.qcComment,
                   price: parseFloat(o.price) || 0, quantity: o.items_count || 1,
                   storeId: store.id, orderDate: o.created_at ? new Date(o.created_at) : null,
                 },
@@ -109,7 +109,7 @@ export async function GET(req: NextRequest) {
               await prisma.darazClaim.create({
                 data: {
                   trackingNo, darazOrderId: orderId, itemName, customerName,
-                  customerComment: reason, qcComment: shipmentProvider,
+                  customerComment: reason, qcComment: null,
                   price: parseFloat(o.price) || 0, quantity: o.items_count || 1,
                   returnType: actualStatus, claimStatus: "pending",
                   storeId: store.id, orderDate: o.created_at ? new Date(o.created_at) : null,
