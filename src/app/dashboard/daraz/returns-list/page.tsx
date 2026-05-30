@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { RefreshCw, Search, RotateCcw } from "lucide-react";
+import OrderDetailPopup from "@/components/OrderDetailPopup";
 
 interface Claim {
   id: string;
@@ -74,6 +75,7 @@ export default function ReturnsListPage() {
   const [customFrom, setCustomFrom] = useState("");
   const [customTo, setCustomTo] = useState("");
   const [message, setMessage] = useState("");
+  const [popupOrder, setPopupOrder] = useState<{ orderId: string; storeId: string | null } | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -257,7 +259,18 @@ export default function ReturnsListPage() {
               <tbody>
                 {filtered.slice(0, 400).map((c) => (
                   <tr key={c.id} className="border-t border-gray-800 hover:bg-gray-850">
-                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{c.darazOrderId || "-"}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {c.darazOrderId ? (
+                        <button
+                          onClick={() => setPopupOrder({ orderId: c.darazOrderId!, storeId: c.storeId })}
+                          className="text-blue-400 hover:text-blue-300 hover:underline"
+                        >
+                          {c.darazOrderId}
+                        </button>
+                      ) : (
+                        <span className="text-gray-500">-</span>
+                      )}
+                    </td>
                     <td className="px-4 py-3 text-gray-300 font-mono text-xs">{c.trackingNo}</td>
                     <td className="px-4 py-3 text-white">{c.customerName || "N/A"}</td>
                     <td className="px-4 py-3 text-gray-400">{c.quantity}</td>
@@ -280,6 +293,14 @@ export default function ReturnsListPage() {
             </p>
           )}
         </div>
+      )}
+
+      {popupOrder && (
+        <OrderDetailPopup
+          orderId={popupOrder.orderId}
+          storeId={popupOrder.storeId}
+          onClose={() => setPopupOrder(null)}
+        />
       )}
     </div>
   );
