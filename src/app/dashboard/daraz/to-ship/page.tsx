@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Truck, RefreshCw, Package } from "lucide-react";
 import { resolveStoreName } from "@/lib/storeMap";
+import OrderDetailPopup from "@/components/OrderDetailPopup";
 
 interface ToShipOrder {
   orderId: string;
@@ -23,6 +24,7 @@ export default function ToShipPage() {
   const [orders, setOrders] = useState<ToShipOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [storeFilter, setStoreFilter] = useState("all");
+  const [popupOrder, setPopupOrder] = useState<{ orderId: string; storeId: string | null } | null>(null);
 
   const fetchOrders = async () => {
     setLoading(true);
@@ -43,6 +45,13 @@ export default function ToShipPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {popupOrder && (
+        <OrderDetailPopup
+          orderId={popupOrder.orderId}
+          storeId={popupOrder.storeId}
+          onClose={() => setPopupOrder(null)}
+        />
+      )}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
           <Truck className="w-6 h-6 text-orange-400" />
@@ -115,7 +124,7 @@ export default function ToShipPage() {
             <tbody>
               {filtered.map((o) => (
                 <tr key={o.orderId} className="border-t border-gray-800 hover:bg-gray-800/30 transition-colors">
-                  <td className="px-4 py-3 text-blue-400 font-mono text-xs">{o.orderId}</td>
+                  <td className="px-4 py-3"><button onClick={() => setPopupOrder({ orderId: o.orderId, storeId: o.storeId })} className="text-blue-400 font-mono text-xs hover:underline">{o.orderId}</button></td>
                   <td className="px-4 py-3 text-gray-300">{o.customerName}</td>
                   <td className="px-4 py-3 text-center text-gray-400">{o.itemsCount}</td>
                   <td className="px-4 py-3 text-right text-emerald-400">Rs {o.price.toLocaleString()}</td>
