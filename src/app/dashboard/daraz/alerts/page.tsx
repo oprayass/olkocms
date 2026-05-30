@@ -1,6 +1,19 @@
 "use client";
 import { useState, useEffect } from "react";
-import { AlertTriangle, RefreshCw, CheckCircle, Play } from "lucide-react";
+import { AlertTriangle, RefreshCw, CheckCircle, Play, X, Package, User, Store, Hash, TrendingUp } from "lucide-react";
+
+interface OrderDetails {
+  darazOrderId: string;
+  product: string | null;
+  customerName: string | null;
+  price: number | null;
+  quantity: number | null;
+  status: string | null;
+  trackingNo: string | null;
+  storeId: string | null;
+  storeName: string;
+  orderDate: string | null;
+}
 
 interface Alert {
   id: string;
@@ -11,6 +24,7 @@ interface Alert {
   notes: string | null;
   resolvedAt: string | null;
   createdAt: string;
+  orderDetails: OrderDetails | null;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -41,10 +55,8 @@ function getDateRange(filter: string): { from: Date | null; to: Date | null; los
   const now = new Date();
   if (filter === "lost") return { from: null, to: null, lostOnly: true };
   if (filter === "all") return { from: null, to: null, lostOnly: false };
-
   const start = new Date(); start.setHours(0, 0, 0, 0);
   const end = new Date(); end.setHours(23, 59, 59, 999);
-
   if (filter === "today") return { from: start, to: end, lostOnly: false };
   if (filter === "yesterday") {
     const f = new Date(start); f.setDate(f.getDate() - 1);
@@ -52,19 +64,16 @@ function getDateRange(filter: string): { from: Date | null; to: Date | null; los
     return { from: f, to: t, lostOnly: false };
   }
   if (filter === "this_week") {
-    const day = now.getDay();
-    const f = new Date(start); f.setDate(f.getDate() - day);
+    const f = new Date(start); f.setDate(f.getDate() - now.getDay());
     return { from: f, to: end, lostOnly: false };
   }
   if (filter === "last_week") {
-    const day = now.getDay();
-    const f = new Date(start); f.setDate(f.getDate() - day - 7);
-    const t = new Date(start); t.setDate(t.getDate() - day - 1); t.setHours(23,59,59,999);
+    const f = new Date(start); f.setDate(f.getDate() - now.getDay() - 7);
+    const t = new Date(start); t.setDate(t.getDate() - now.getDay() - 1); t.setHours(23,59,59,999);
     return { from: f, to: t, lostOnly: false };
   }
   if (filter === "this_month") {
-    const f = new Date(now.getFullYear(), now.getMonth(), 1);
-    return { from: f, to: end, lostOnly: false };
+    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: end, lostOnly: false };
   }
   if (filter === "last_month") {
     const f = new Date(now.getFullYear(), now.getMonth() - 1, 1);
@@ -72,6 +81,119 @@ function getDateRange(filter: string): { from: Date | null; to: Date | null; los
     return { from: f, to: t, lostOnly: false };
   }
   return { from: null, to: null, lostOnly: false };
+}
+
+function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
+  alert: Alert;
+  onClose: () => void;
+  onUpdateStatus: (id: string, status: string) => void;
+  updating: string | null;
+}) {
+  const o = alert.orderDetails;
+  const typeInfo = ALERT_TYPE_LABELS[alert.alertType];
+  return (
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
+        {/* Header */}
+        <div className="flex items-start justify-between p-5 border-b border-gray-800">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_COLORS[alert.status] ?? STATUS_COLORS.unresolved}`}>
+                {alert.status}
+              </span>
+              {typeInfo && (
+                <span className={`text-xs px-2 py-0.5 rounded border ${typeInfo.color}`}>
+                  {typeInfo.label}
+                </span>
+              )}
+            </div>
+            <h2 className="text-white font-semibold text-base mt-1">
+              {o?.product ?? alert.productName ?? "Unknown Item"}
+            </h2>
+          </div>
+          <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors ml-3 shrink-0">
+            <X className="w-5 h-5" />
+          </button>
+        </div>
+
+        {/* Order Details */}
+        <div className="p-5 space-y-3">
+          {o ? (
+            <>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Hash className="w-3 h-3" /> Order ID</div>
+                  <div className="text-white text-xs font-mono">{o.darazOrderId}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Store className="w-3 h-3" /> Store</div>
+                  <div className="text-white text-xs font-medium">{o.storeName}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><User className="w-3 h-3" /> Customer</div>
+                  <div className="text-white text-xs">{o.customerName ?? "—"}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><TrendingUp className="w-3 h-3" /> Status</div>
+                  <div className="text-amber-400 text-xs font-medium">{o.status ?? "—"}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Package className="w-3 h-3" /> Price × Qty</div>
+                  <div className="text-white text-xs">Rs. {o.price ?? "—"} × {o.quantity ?? 1}</div>
+                </div>
+                <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs">🚚 Tracking</div>
+                  <div className="text-white text-xs font-mono">{o.trackingNo ?? "none"}</div>
+                </div>
+              </div>
+              {o.orderDate && (
+                <div className="bg-gray-800 rounded-xl p-3">
+                  <span className="text-gray-400 text-xs">Order Date: </span>
+                  <span className="text-white text-xs">{new Date(o.orderDate).toLocaleDateString()}</span>
+                </div>
+              )}
+            </>
+          ) : (
+            <div className="bg-gray-800 rounded-xl p-4 text-center">
+              <p className="text-gray-400 text-sm">Order ID: <span className="text-white font-mono">{alert.darazOrderId}</span></p>
+              <p className="text-gray-500 text-xs mt-1">OlkoCMS मा order record छैन</p>
+            </div>
+          )}
+
+          {/* Notes */}
+          {alert.notes && (
+            <div className="bg-gray-800/50 rounded-xl p-3">
+              <p className="text-gray-400 text-xs leading-relaxed">{alert.notes}</p>
+            </div>
+          )}
+
+          <p className="text-gray-600 text-xs">{new Date(alert.createdAt).toLocaleString()}</p>
+        </div>
+
+        {/* Actions */}
+        <div className="flex gap-2 p-5 pt-0">
+          {alert.status !== "investigating" && alert.status !== "resolved" && (
+            <button
+              onClick={() => onUpdateStatus(alert.id, "investigating")}
+              disabled={updating === alert.id}
+              className="flex-1 py-2 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl text-sm hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+            >
+              Investigate
+            </button>
+          )}
+          {alert.status !== "resolved" && (
+            <button
+              onClick={() => { onUpdateStatus(alert.id, "resolved"); onClose(); }}
+              disabled={updating === alert.id}
+              className="flex-1 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl text-sm hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
+            >
+              Resolve ✓
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
 }
 
 export default function AlertsPage() {
@@ -83,6 +205,7 @@ export default function AlertsPage() {
   const [updating, setUpdating] = useState<string | null>(null);
   const [reconciling, setReconciling] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<{ created: number; skipped: number } | null>(null);
+  const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
 
   const fetchAlerts = async () => {
     setLoading(true);
@@ -155,6 +278,15 @@ export default function AlertsPage() {
 
   return (
     <div className="p-6 space-y-6">
+      {selectedAlert && (
+        <DetailPopup
+          alert={selectedAlert}
+          onClose={() => setSelectedAlert(null)}
+          onUpdateStatus={updateStatus}
+          updating={updating}
+        />
+      )}
+
       {/* Header */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
@@ -186,11 +318,10 @@ export default function AlertsPage() {
         </div>
       </div>
 
-      {/* Reconcile result */}
       {reconcileResult && (
         <div className={`rounded-xl border p-4 text-sm ${reconcileResult.created === -1 ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"}`}>
           {reconcileResult.created === -1
-            ? "❌ Reconciliation failed — check console"
+            ? "❌ Reconciliation failed"
             : `✅ Reconciliation complete — ${reconcileResult.created} new alerts created, ${reconcileResult.skipped} skipped`}
         </div>
       )}
@@ -215,13 +346,8 @@ export default function AlertsPage() {
       {/* Date filter */}
       <div className="flex gap-2 flex-wrap">
         {DATE_FILTERS.map((f) => (
-          <button
-            key={f.key}
-            onClick={() => setDateFilter(f.key)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              dateFilter === f.key ? "bg-blue-600 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
-            }`}
-          >
+          <button key={f.key} onClick={() => setDateFilter(f.key)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${dateFilter === f.key ? "bg-blue-600 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"}`}>
             {f.label}
           </button>
         ))}
@@ -230,17 +356,10 @@ export default function AlertsPage() {
       {/* Status filter */}
       <div className="flex gap-2 flex-wrap">
         {["unresolved", "investigating", "lost", "resolved", "all"].map((f) => (
-          <button
-            key={f}
-            onClick={() => setStatusFilter(f)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${
-              statusFilter === f ? "bg-gray-700 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"
-            }`}
-          >
+          <button key={f} onClick={() => setStatusFilter(f)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors capitalize ${statusFilter === f ? "bg-gray-700 text-white" : "bg-gray-900 text-gray-400 hover:text-white border border-gray-800"}`}>
             {f}
-            {f !== "all" && (
-              <span className="ml-1.5 text-gray-500">({activeCount(f)})</span>
-            )}
+            {f !== "all" && <span className="ml-1.5 text-gray-500">({activeCount(f)})</span>}
           </button>
         ))}
       </div>
@@ -254,31 +373,43 @@ export default function AlertsPage() {
           <p className="text-gray-400 text-sm">No alerts for this filter</p>
         </div>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {filtered.map((alert) => {
             const typeInfo = ALERT_TYPE_LABELS[alert.alertType];
             const isLost = alert.status === "lost" || new Date(alert.createdAt) < twoMonthsAgo;
+            const o = alert.orderDetails;
             return (
-              <div key={alert.id} className={`bg-gray-900 border rounded-xl p-4 ${isLost ? "border-gray-600" : "border-gray-800"}`}>
-                <div className="flex items-start justify-between gap-4">
-                  <div className="space-y-1 flex-1">
-                    <div className="flex items-center gap-2 flex-wrap">
-                      {isLost && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded border border-gray-600">🔴 LOST</span>}
-                      <span className="text-white font-medium text-sm">{alert.productName}</span>
-                      <span className={`text-xs px-2 py-0.5 rounded border ${STATUS_COLORS[alert.status] ?? STATUS_COLORS.unresolved}`}>
-                        {alert.status}
-                      </span>
-                      {typeInfo && (
-                        <span className={`text-xs px-2 py-0.5 rounded border ${typeInfo.color}`}>
-                          {typeInfo.label}
+              <div
+                key={alert.id}
+                onClick={() => setSelectedAlert(alert)}
+                className={`bg-gray-900 border rounded-xl p-4 cursor-pointer hover:border-gray-600 transition-all ${isLost ? "border-gray-700" : "border-gray-800"}`}
+              >
+                <div className="flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <div className="space-y-1 flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap">
+                        {isLost && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded border border-gray-600">🔴 LOST</span>}
+                        <span className="text-white font-medium text-sm truncate">
+                          {o?.product ?? alert.productName ?? "Unknown Item"}
                         </span>
-                      )}
+                        <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${STATUS_COLORS[alert.status] ?? STATUS_COLORS.unresolved}`}>
+                          {alert.status}
+                        </span>
+                        {typeInfo && (
+                          <span className={`text-xs px-2 py-0.5 rounded border shrink-0 ${typeInfo.color}`}>
+                            {typeInfo.label}
+                          </span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                        <span>Order: {alert.darazOrderId}</span>
+                        {o?.storeName && <span className="text-blue-400">🏪 {o.storeName}</span>}
+                        {o?.customerName && <span>👤 {o.customerName}</span>}
+                        {o?.price && <span>Rs. {o.price}</span>}
+                      </div>
                     </div>
-                    <p className="text-gray-500 text-xs">Order: {alert.darazOrderId}</p>
-                    {alert.notes && <p className="text-gray-400 text-xs mt-1 leading-relaxed">{alert.notes}</p>}
-                    <p className="text-gray-600 text-xs">{new Date(alert.createdAt).toLocaleString()}</p>
                   </div>
-                  <div className="flex gap-2 shrink-0">
+                  <div className="flex gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
                     {alert.status !== "investigating" && alert.status !== "resolved" && (
                       <button
                         onClick={() => updateStatus(alert.id, "investigating")}
