@@ -12,7 +12,6 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=no_code");
     }
 
-    // Trim to remove any hidden whitespace/newline
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
     const apiPath = "/auth/token/create";
@@ -45,13 +44,11 @@ export async function GET(req: NextRequest) {
     try {
       data = JSON.parse(text);
     } catch {
-      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent("parse:" + text.substring(0, 150))}`);
+      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=token_failed");
     }
 
     if (!data.access_token) {
-      // DEBUG: show keyLen, secretLen, signBase
-      const debug = `keyLen=${appKey.length}|secretLen=${appSecret.length}|base=${signBase}|resp=${JSON.stringify(data).substring(0, 80)}`;
-      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent(debug.substring(0, 350))}`);
+      return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=token_failed");
     }
 
     const sellerId = data.account || data.account_platform || "unknown";
@@ -65,8 +62,7 @@ export async function GET(req: NextRequest) {
     });
 
     return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?success=true");
-  } catch (error) {
-    const errMsg = encodeURIComponent(String(error).substring(0, 200));
-    return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${errMsg}`);
+  } catch {
+    return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=unknown");
   }
 }
