@@ -12,8 +12,9 @@ export async function GET(req: NextRequest) {
       return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=no_code");
     }
 
-    const appKey = process.env.DARAZ_APP_KEY!;
-    const appSecret = process.env.DARAZ_APP_SECRET!;
+    // Trim to remove any hidden whitespace/newline
+    const appKey = (process.env.DARAZ_APP_KEY || "").trim();
+    const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
     const apiPath = "/auth/token/create";
     const timestamp = Date.now().toString();
 
@@ -24,7 +25,6 @@ export async function GET(req: NextRequest) {
       timestamp,
     };
 
-    // Sort + concatenate (raw values, no encoding) for signature
     const sortedKeys = Object.keys(params).sort();
     let concat = "";
     for (const k of sortedKeys) {
@@ -33,7 +33,6 @@ export async function GET(req: NextRequest) {
     const signBase = apiPath + concat;
     const sign = crypto.createHmac("sha256", appSecret).update(signBase, "utf8").digest("hex").toUpperCase();
 
-    // GET with query string - encode values for URL
     const query = sortedKeys
       .map((k) => `${k}=${encodeURIComponent(params[k])}`)
       .join("&") + `&sign=${sign}`;
@@ -50,8 +49,9 @@ export async function GET(req: NextRequest) {
     }
 
     if (!data.access_token) {
-      const errMsg = encodeURIComponent(JSON.stringify(data).substring(0, 200));
-      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${errMsg}`);
+      // DEBUG: show keyLen, secretLen, signBase
+      const debug = `keyLen=${appKey.length}|secretLen=${appSecret.length}|base=${signBase}|resp=${JSON.stringify(data).substring(0, 80)}`;
+      return NextResponse.redirect(`https://olkocms.vercel.app/dashboard/settings/daraz-stores?error=${encodeURIComponent(debug.substring(0, 350))}`);
     }
 
     const sellerId = data.account || data.account_platform || "unknown";
@@ -60,22 +60,8 @@ export async function GET(req: NextRequest) {
 
     await prisma.darazStore.upsert({
       where: { sellerId },
-      update: {
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        tokenExpiry,
-        isActive: true,
-        status: "Active",
-      },
-      create: {
-        storeName,
-        sellerId,
-        accessToken: data.access_token,
-        refreshToken: data.refresh_token,
-        tokenExpiry,
-        isActive: true,
-        status: "Active",
-      },
+      update: { accessToken: data.access_token, refreshToken: data.refresh_token, tokenExpiry, isActive: true, status: "Active" },
+      create: { storeName, sellerId, accessToken: data.access_token, refreshToken: data.refresh_token, tokenExpiry, isActive: true, status: "Active" },
     });
 
     return NextResponse.redirect("https://olkocms.vercel.app/dashboard/settings/daraz-stores?success=true");
