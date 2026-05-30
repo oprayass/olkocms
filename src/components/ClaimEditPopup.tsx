@@ -139,7 +139,9 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
             <p className="text-gray-600 text-xs mt-1">"Need to Claim" मार्क गरेपछि Claims page मा देखिन्छ।</p>
           </div>
 
-          {/* QC reason (हामीले पठाएको कारण) */}
+          {form.claimDecision !== "not_needed" && (
+          <>
+          {/* QC reason (Daraz QC reason) */}
           <div>
             <label className={labelCls}>QC Reason (हामीले पठाउँदाको कारण)</label>
             <input className={inputCls} value={form.qcComment}
@@ -209,6 +211,8 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
               onChange={(e) => setForm({ ...form, claimNote: e.target.value })}
               placeholder="Extra notes..." />
           </div>
+          </>
+          )}
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
         </div>
