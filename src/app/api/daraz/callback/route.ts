@@ -1,7 +1,7 @@
 ﻿export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import crypto from "crypto";
+const lazadaOpenApi = require("lazada-open-api-package");
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,20 +14,18 @@ export async function GET(req: NextRequest) {
 
     const appKey = process.env.DARAZ_APP_KEY!;
     const appSecret = process.env.DARAZ_APP_SECRET!;
-    const apiPath = "/auth/token/create";
     const timestamp = Date.now().toString();
+    const apiPath = "/auth/token/create";
 
-    // Daraz signature: HMAC-SHA256(apiPath + sorted_params)
     const params: Record<string, string> = {
       app_key: appKey,
       code,
       sign_method: "sha256",
       timestamp,
     };
-    const sortedKeys = Object.keys(params).sort();
-    const concatenated = sortedKeys.map(k => `${k}${params[k]}`).join("");
-    const signStr = apiPath + concatenated;
-    const sign = crypto.createHmac("sha256", appSecret).update(signStr, "utf8").digest("hex").toUpperCase();
+
+    // Package generates correct signature
+    const sign = lazadaOpenApi.signature(params, apiPath, appSecret);
 
     const queryParams = new URLSearchParams({
       app_key: appKey,
