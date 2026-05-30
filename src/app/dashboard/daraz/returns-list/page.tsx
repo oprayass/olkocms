@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { RefreshCw, Search, RotateCcw } from "lucide-react";
 import OrderDetailPopup from "@/components/OrderDetailPopup";
+import ClaimEditPopup from "@/components/ClaimEditPopup";
 
 interface Claim {
   id: string;
@@ -17,6 +18,13 @@ interface Claim {
   storeId: string | null;
   createdAt: string;
   orderDate: string | null;
+  itemCondition?: string | null;
+  claimReason?: string | null;
+  claimType?: string | null;
+  claimedAmount?: number | null;
+  receivedAmount?: number | null;
+  claimDate?: string | null;
+  claimNote?: string | null;
 }
 
 interface Store {
@@ -76,6 +84,7 @@ export default function ReturnsListPage() {
   const [customTo, setCustomTo] = useState("");
   const [message, setMessage] = useState("");
   const [popupOrder, setPopupOrder] = useState<{ orderId: string; storeId: string | null } | null>(null);
+  const [claimEdit, setClaimEdit] = useState<Claim | null>(null);
 
   const loadData = async () => {
     setLoading(true);
@@ -254,6 +263,7 @@ export default function ReturnsListPage() {
                   <th className="text-left px-4 py-3">Type</th>
                   <th className="text-left px-4 py-3">Store</th>
                   <th className="text-left px-4 py-3">Date</th>
+                  <th className="text-left px-4 py-3">Claim</th>
                 </tr>
               </thead>
               <tbody>
@@ -282,6 +292,20 @@ export default function ReturnsListPage() {
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{storeName(c.storeId)}</td>
                     <td className="px-4 py-3 text-gray-500 text-xs">{new Date(c.orderDate || c.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => setClaimEdit(c)}
+                        className={`px-2 py-1 rounded text-xs border ${
+                          c.claimStatus === "approved" ? "bg-emerald-900 text-emerald-300 border-emerald-700"
+                          : c.claimStatus === "rejected" ? "bg-red-900 text-red-300 border-red-700"
+                          : c.claimStatus === "filed" ? "bg-blue-900 text-blue-300 border-blue-700"
+                          : "bg-gray-800 text-gray-400 border-gray-700"
+                        } hover:opacity-80`}
+                      >
+                        {c.claimStatus}
+                        {c.receivedAmount != null ? ` · Rs ${c.receivedAmount.toLocaleString()}` : ""}
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -300,6 +324,14 @@ export default function ReturnsListPage() {
           orderId={popupOrder.orderId}
           storeId={popupOrder.storeId}
           onClose={() => setPopupOrder(null)}
+        />
+      )}
+
+      {claimEdit && (
+        <ClaimEditPopup
+          claim={claimEdit}
+          onClose={() => setClaimEdit(null)}
+          onSaved={() => loadData()}
         />
       )}
     </div>
