@@ -15,9 +15,8 @@ export async function GET(req: NextRequest) {
     const appKey = process.env.DARAZ_APP_KEY!;
     const appSecret = process.env.DARAZ_APP_SECRET!;
     const apiPath = "/auth/token/create";
-    const timestamp = new Date().getTime().toString();
+    const timestamp = Date.now().toString();
 
-    // Params (sign बाहेक)
     const params: Record<string, string> = {
       app_key: appKey,
       code,
@@ -25,32 +24,22 @@ export async function GET(req: NextRequest) {
       timestamp,
     };
 
-    // Sort keys by localeCompare (exactly like package)
-    const keys = Object.keys(params).sort((a, b) => a.localeCompare(b));
-    let input = "";
-    for (const k of keys) {
-      input += k + params[k];
+    // Sort + concatenate (raw values, no encoding) for signature
+    const sortedKeys = Object.keys(params).sort();
+    let concat = "";
+    for (const k of sortedKeys) {
+      concat += k + params[k];
     }
-    const plainText = apiPath + input;
+    const signBase = apiPath + concat;
+    const sign = crypto.createHmac("sha256", appSecret).update(signBase, "utf8").digest("hex").toUpperCase();
 
-    // HMAC-SHA256 hex uppercase
-    const sign = crypto.createHmac("sha256", appSecret).update(plainText).digest("hex").toUpperCase();
+    // GET with query string - encode values for URL
+    const query = sortedKeys
+      .map((k) => `${k}=${encodeURIComponent(params[k])}`)
+      .join("&") + `&sign=${sign}`;
 
-    // POST with form body (package uses POST)
-    const url = "https://api.daraz.com.np/rest/auth/token/create";
-    const body = new URLSearchParams({
-      app_key: appKey,
-      code,
-      sign_method: "sha256",
-      timestamp,
-      sign,
-    });
-
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: body.toString(),
-    });
+    const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
+    const res = await fetch(url, { method: "GET" });
     const text = await res.text();
 
     let data;
