@@ -1,7 +1,7 @@
 ﻿export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-const lazadaOpenApi = require("lazada-open-api-package");
+import crypto from "crypto";
 
 export async function GET(req: NextRequest) {
   try {
@@ -14,9 +14,10 @@ export async function GET(req: NextRequest) {
 
     const appKey = process.env.DARAZ_APP_KEY!;
     const appSecret = process.env.DARAZ_APP_SECRET!;
-    const timestamp = Date.now().toString();
     const apiPath = "/auth/token/create";
+    const timestamp = new Date().getTime().toString();
 
+    // Params (sign बाहेक)
     const params: Record<string, string> = {
       app_key: appKey,
       code,
@@ -24,10 +25,20 @@ export async function GET(req: NextRequest) {
       timestamp,
     };
 
-    // Package generates correct signature
-    const sign = lazadaOpenApi.signature(params, apiPath, appSecret);
+    // Sort keys by localeCompare (exactly like package)
+    const keys = Object.keys(params).sort((a, b) => a.localeCompare(b));
+    let input = "";
+    for (const k of keys) {
+      input += k + params[k];
+    }
+    const plainText = apiPath + input;
 
-    const queryParams = new URLSearchParams({
+    // HMAC-SHA256 hex uppercase
+    const sign = crypto.createHmac("sha256", appSecret).update(plainText).digest("hex").toUpperCase();
+
+    // POST with form body (package uses POST)
+    const url = "https://api.daraz.com.np/rest/auth/token/create";
+    const body = new URLSearchParams({
       app_key: appKey,
       code,
       sign_method: "sha256",
@@ -35,8 +46,11 @@ export async function GET(req: NextRequest) {
       sign,
     });
 
-    const tokenUrl = `https://api.daraz.com.np/rest${apiPath}?${queryParams.toString()}`;
-    const res = await fetch(tokenUrl, { method: "GET" });
+    const res = await fetch(url, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: body.toString(),
+    });
     const text = await res.text();
 
     let data;
