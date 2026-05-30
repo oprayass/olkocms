@@ -1,6 +1,6 @@
 "use client";
 import { useState, useEffect } from "react";
-import { X, FileText, Loader2 } from "lucide-react";
+import { X, FileText, Loader2, History } from "lucide-react";
 
 interface Claim {
   id: string;
@@ -41,6 +41,7 @@ const DECISIONS = [
 
 export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
+  const [logs, setLogs] = useState<{ id: string; field: string; oldValue: string | null; newValue: string | null; changedBy: string | null; createdAt: string }[]>([]);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
     qcComment: "",
@@ -70,6 +71,11 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
         claimDecision: claim.claimDecision || "undecided",
       });
       setError("");
+      // fetch history
+      fetch(`/api/daraz/claim-log?claimId=${claim.id}`)
+        .then((r) => r.json())
+        .then((d) => setLogs(d.logs || []))
+        .catch(() => setLogs([]));
     }
   }, [claim]);
 
@@ -212,6 +218,29 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
               placeholder="Extra notes..." />
           </div>
           </>
+          )}
+
+          {/* History timeline */}
+          {logs.length > 0 && (
+            <div className="border-t border-gray-800 pt-4">
+              <div className="flex items-center gap-2 mb-2">
+                <History className="w-4 h-4 text-gray-400" />
+                <span className="text-sm text-gray-300 font-medium">History</span>
+              </div>
+              <div className="space-y-2 max-h-40 overflow-y-auto">
+                {logs.map((log) => (
+                  <div key={log.id} className="text-xs text-gray-400 flex flex-wrap gap-1">
+                    <span className="text-gray-500">{new Date(log.createdAt).toLocaleString()}</span>
+                    <span className="text-blue-300">{log.changedBy || "unknown"}</span>
+                    <span>changed</span>
+                    <span className="text-white">{log.field}</span>
+                    <span className="text-gray-600">{log.oldValue}</span>
+                    <span>→</span>
+                    <span className="text-emerald-300">{log.newValue}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
           )}
 
           {error && <p className="text-red-400 text-sm">{error}</p>}
