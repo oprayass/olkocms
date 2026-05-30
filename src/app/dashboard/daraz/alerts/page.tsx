@@ -98,9 +98,24 @@ export default function AlertsPage() {
     setReconciling(true);
     setReconcileResult(null);
     try {
-      const res = await fetch("/api/daraz/reconcile", { method: "POST" });
-      const data = await res.json();
-      setReconcileResult({ created: data?.created ?? 0, skipped: data?.skipped ?? 0 });
+      let totalCreated = 0;
+      let totalSkipped = 0;
+      let offset = 0;
+      let hasMore = true;
+      while (hasMore) {
+        const res = await fetch("/api/daraz/reconcile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offset }),
+        });
+        const data = await res.json();
+        if (data.error) break;
+        totalCreated += data.created ?? 0;
+        totalSkipped += data.skipped ?? 0;
+        hasMore = data.nextOffset !== null && data.nextOffset !== undefined;
+        offset = data.nextOffset ?? 0;
+      }
+      setReconcileResult({ created: totalCreated, skipped: totalSkipped });
       await fetchAlerts();
     } catch {
       setReconcileResult({ created: -1, skipped: -1 });
