@@ -371,6 +371,7 @@ model DarazClaim {
   scannedBy       String?
   resolvedAt      DateTime?
   storeId         String?
+  orderDate       DateTime?
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
 }

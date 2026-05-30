@@ -15,6 +15,7 @@ interface Claim {
   claimStatus: string;
   storeId: string | null;
   createdAt: string;
+  orderDate: string | null;
 }
 
 interface Store {
@@ -125,7 +126,7 @@ export default function ReturnsListPage() {
     const matchType = typeFilter === "all" || c.returnType === typeFilter;
 
     let matchDate = true;
-    const created = new Date(c.createdAt);
+    const created = new Date(c.orderDate || c.createdAt);
     if (period === "custom") {
       if (customFrom) matchDate = matchDate && created >= new Date(customFrom);
       if (customTo) matchDate = matchDate && created < new Date(new Date(customTo).getTime() + 86400000);
@@ -141,7 +142,7 @@ export default function ReturnsListPage() {
     const sa = storeName(a.storeId);
     const sb = storeName(b.storeId);
     if (sa !== sb) return sa.localeCompare(sb);
-    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    return new Date(b.orderDate || b.createdAt).getTime() - new Date(a.orderDate || a.createdAt).getTime();
   });
 
   const totalValue = filtered.reduce((sum, c) => sum + (c.price || 0), 0);
@@ -267,7 +268,7 @@ export default function ReturnsListPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{storeName(c.storeId)}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{new Date(c.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{new Date(c.orderDate || c.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
