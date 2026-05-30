@@ -6,11 +6,7 @@
     },
     {
       "path": "/api/daraz/orders/fetch",
-      "schedule": "0 */6 * * *"
-    },
-    {
-      "path": "/api/daraz/token/refresh",
-      "schedule": "0 2 * * *"
+      "schedule": "0 0 * * *"
     }
   ]
 }

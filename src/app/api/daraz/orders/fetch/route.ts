@@ -96,3 +96,39 @@ export async function GET() {
     return NextResponse.json({ error: String(error).substring(0, 200) }, { status: 500 });
   }
 }
+
+// Helper: refresh expiring tokens before fetch (called internally)
+async function refreshExpiringTokens(appKey: string, appSecret: string) {
+  const { prisma } = await import("@/lib/prisma");
+  const cryptoMod = await import("crypto");
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  const stores = await prisma.darazStore.findMany({
+    where: { isActive: true, refreshToken: { not: null }, tokenExpiry: { lte: sevenDaysLater } },
+  });
+  for (const store of stores) {
+    try {
+      const apiPath = "/auth/token/refresh";
+      const timestamp = Date.now().toString();
+      const params: Record<string, string> = {
+        app_key: appKey, refresh_token: store.refreshToken!, sign_method: "sha256", timestamp,
+      };
+      const sortedKeys = Object.keys(params).sort();
+      let concat = "";
+      for (const k of sortedKeys) concat += k + params[k];
+      const sign = cryptoMod.createHmac("sha256", appSecret).update(apiPath + concat, "utf8").digest("hex").toUpperCase();
+      const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
+      const res = await fetch(`https://api.daraz.com.np/rest${apiPath}?${query}`, { method: "GET" });
+      const data = await res.json();
+      if (data.access_token) {
+        await prisma.darazStore.update({
+          where: { id: store.id },
+          data: {
+            accessToken: data.access_token,
+            refreshToken: data.refresh_token || store.refreshToken,
+            tokenExpiry: new Date(Date.now() + (data.expires_in || 2592000) * 1000),
+          },
+        });
+      }
+    } catch {}
+  }
+}
