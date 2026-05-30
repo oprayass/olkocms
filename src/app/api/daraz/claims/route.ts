@@ -1,9 +1,13 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   try {
+    const decision = req.nextUrl.searchParams.get("decision"); // "need" | "all" | null
+    const where: any = {};
+    if (decision === "need") where.claimDecision = "need";
     const claims = await prisma.darazClaim.findMany({
+      where,
       orderBy: { createdAt: "desc" },
     });
     return NextResponse.json(claims);

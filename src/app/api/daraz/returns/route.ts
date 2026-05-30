@@ -46,6 +46,8 @@ export async function PATCH(req: NextRequest) {
 
     const data: any = {};
     // only set fields that were provided
+    if ("qcComment" in body) data.qcComment = body.qcComment;
+    if ("claimDecision" in body) data.claimDecision = body.claimDecision;
     if ("itemCondition" in body) data.itemCondition = body.itemCondition;
     if ("claimReason" in body) data.claimReason = body.claimReason;
     if ("claimType" in body) data.claimType = body.claimType;

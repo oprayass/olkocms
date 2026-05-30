@@ -12,6 +12,7 @@ interface Claim {
   quantity: number;
   returnType: string | null;
   customerComment: string | null;
+  qcComment?: string | null;
   claimStatus: string;
   itemCondition?: string | null;
   claimReason?: string | null;
@@ -20,6 +21,7 @@ interface Claim {
   receivedAmount?: number | null;
   claimDate?: string | null;
   claimNote?: string | null;
+  claimDecision?: string | null;
 }
 
 interface Props {
@@ -31,11 +33,17 @@ interface Props {
 const CONDITIONS = ["Good", "Damaged", "Wrong Item", "Missing Parts", "Used", "Other"];
 const CLAIM_TYPES = ["Full", "Partial", "Percentage"];
 const STATUSES = ["pending", "filed", "approved", "rejected"];
+const DECISIONS = [
+  { value: "undecided", label: "Undecided" },
+  { value: "need", label: "Need to Claim" },
+  { value: "not_needed", label: "Not Needed" },
+];
 
 export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState("");
   const [form, setForm] = useState({
+    qcComment: "",
     itemCondition: "",
     claimReason: "",
     claimType: "",
@@ -44,11 +52,13 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
     claimStatus: "pending",
     claimDate: "",
     claimNote: "",
+    claimDecision: "undecided",
   });
 
   useEffect(() => {
     if (claim) {
       setForm({
+        qcComment: claim.qcComment || "",
         itemCondition: claim.itemCondition || "",
         claimReason: claim.claimReason || "",
         claimType: claim.claimType || "",
@@ -57,6 +67,7 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
         claimStatus: claim.claimStatus || "pending",
         claimDate: claim.claimDate ? claim.claimDate.substring(0, 10) : "",
         claimNote: claim.claimNote || "",
+        claimDecision: claim.claimDecision || "undecided",
       });
       setError("");
     }
@@ -115,9 +126,25 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
             <p className="text-gray-400">Customer: <span className="text-white">{claim.customerName || "N/A"}</span></p>
             <p className="text-gray-400">Return type: <span className="text-white">{claim.returnType || "-"}</span></p>
             <p className="text-gray-400">Item value: <span className="text-emerald-400">Rs {(claim.price || 0).toLocaleString()}</span> × {claim.quantity}</p>
-            {claim.customerComment && (
-              <p className="text-gray-400">Customer reason: <span className="text-orange-300">{claim.customerComment}</span></p>
-            )}
+            <p className="text-gray-400">Customer return reason: <span className="text-orange-300">{claim.customerComment || "—"}</span></p>
+          </div>
+
+          {/* Claim Decision — सबभन्दा माथि, महत्त्वपूर्ण */}
+          <div>
+            <label className={labelCls}>Claim Decision</label>
+            <select className={inputCls} value={form.claimDecision}
+              onChange={(e) => setForm({ ...form, claimDecision: e.target.value })}>
+              {DECISIONS.map((d) => <option key={d.value} value={d.value}>{d.label}</option>)}
+            </select>
+            <p className="text-gray-600 text-xs mt-1">"Need to Claim" मार्क गरेपछि Claims page मा देखिन्छ।</p>
+          </div>
+
+          {/* QC reason (हामीले पठाएको कारण) */}
+          <div>
+            <label className={labelCls}>QC Reason (हामीले पठाउँदाको कारण)</label>
+            <input className={inputCls} value={form.qcComment}
+              onChange={(e) => setForm({ ...form, qcComment: e.target.value })}
+              placeholder="QC ले देखेको / पठाउँदाको कारण..." />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
