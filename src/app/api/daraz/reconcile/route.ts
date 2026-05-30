@@ -11,6 +11,23 @@ export async function POST(req: NextRequest) {
 
     let created = 0;
     let skipped = 0;
+
+    // offset 0 मा — पुराना "Unknown" outbound alerts clear (जसको order अब fetch भयो)
+    if (offset === 0) {
+      const unknownAlerts = await prisma.darazAlert.findMany({
+        where: { alertType: "outbound_not_delivered" },
+        select: { id: true, darazOrderId: true },
+      });
+      for (const a of unknownAlerts) {
+        if (!a.darazOrderId || a.darazOrderId === "unknown") {
+          await prisma.darazAlert.delete({ where: { id: a.id } });
+          continue;
+        }
+        const ord = await prisma.darazOrder.findFirst({ where: { darazOrderId: a.darazOrderId }, select: { id: true } });
+        if (ord) await prisma.darazAlert.delete({ where: { id: a.id } });
+      }
+    }
+
     const twoMonthsAgo = new Date();
     twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
 
