@@ -1,0 +1,214 @@
+﻿"use client";
+import { useState, useEffect } from "react";
+import { RefreshCw, Search, RotateCcw } from "lucide-react";
+
+interface Claim {
+  id: string;
+  trackingNo: string;
+  darazOrderId: string | null;
+  itemName: string | null;
+  customerName: string | null;
+  quantity: number;
+  price: number | null;
+  returnType: string | null;
+  claimStatus: string;
+  storeId: string | null;
+  createdAt: string;
+}
+
+interface Store {
+  id: string;
+  storeName: string;
+}
+
+const typeColors: Record<string, string> = {
+  returned: "bg-orange-900 text-orange-300",
+  shipped_back: "bg-orange-900 text-orange-300",
+  shipped_back_success: "bg-amber-900 text-amber-300",
+  failed_delivery: "bg-red-900 text-red-300",
+};
+
+export default function ReturnsListPage() {
+  const [claims, setClaims] = useState<Claim[]>([]);
+  const [stores, setStores] = useState<Store[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [fetching, setFetching] = useState(false);
+  const [search, setSearch] = useState("");
+  const [storeFilter, setStoreFilter] = useState("all");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [message, setMessage] = useState("");
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const [claimsRes, storesRes] = await Promise.all([
+        fetch("/api/daraz/returns"),
+        fetch("/api/daraz/stores"),
+      ]);
+      const claimsData = await claimsRes.json();
+      const storesData = await storesRes.json();
+      setClaims(Array.isArray(claimsData) ? claimsData : []);
+      setStores(Array.isArray(storesData) ? storesData : (storesData.stores || []));
+    } catch {
+      setMessage("Failed to load returns");
+    }
+    setLoading(false);
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
+  const handleFetch = async () => {
+    setFetching(true);
+    setMessage("Fetching returns from all stores...");
+    try {
+      const res = await fetch("/api/daraz/returns/fetch");
+      const data = await res.json();
+      if (data.success) {
+        setMessage(`Fetched ${data.totalSaved} returns from ${data.stores} stores!`);
+        await loadData();
+      } else {
+        setMessage("Fetch failed: " + (data.error || "unknown"));
+      }
+    } catch {
+      setMessage("Fetch failed");
+    }
+    setFetching(false);
+  };
+
+  const storeName = (id: string | null) => {
+    const s = stores.find((s) => s.id === id);
+    return s ? s.storeName : "Unknown";
+  };
+
+  const filtered = claims.filter((c) => {
+    const matchSearch =
+      (c.customerName || "").toLowerCase().includes(search.toLowerCase()) ||
+      c.trackingNo.includes(search);
+    const matchStore = storeFilter === "all" || c.storeId === storeFilter;
+    const matchType = typeFilter === "all" || c.returnType === typeFilter;
+    return matchSearch && matchStore && matchType;
+  });
+
+  const totalValue = filtered.reduce((sum, c) => sum + (c.price || 0), 0);
+  const types = Array.from(new Set(claims.map((c) => c.returnType).filter(Boolean)));
+
+  return (
+    <div className="p-6 max-w-7xl mx-auto">
+      <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center gap-3">
+          <RotateCcw className="w-8 h-8 text-orange-500" />
+          <div>
+            <h1 className="text-2xl font-bold text-white">Returns List</h1>
+            <p className="text-gray-400 text-sm">All returns from connected stores</p>
+          </div>
+        </div>
+        <button
+          onClick={handleFetch}
+          disabled={fetching}
+          className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg disabled:opacity-50"
+        >
+          <RefreshCw className={`w-4 h-4 ${fetching ? "animate-spin" : ""}`} />
+          {fetching ? "Fetching..." : "Fetch Returns"}
+        </button>
+      </div>
+
+      {message && (
+        <div className="mb-4 p-3 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300">
+          {message}
+        </div>
+      )}
+
+      <div className="grid grid-cols-3 gap-4 mb-6">
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+          <p className="text-gray-400 text-sm">Total Returns</p>
+          <p className="text-2xl font-bold text-white">{filtered.length}</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+          <p className="text-gray-400 text-sm">Total Value</p>
+          <p className="text-2xl font-bold text-orange-400">Rs {totalValue.toLocaleString()}</p>
+        </div>
+        <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
+          <p className="text-gray-400 text-sm">Connected Stores</p>
+          <p className="text-2xl font-bold text-violet-400">{stores.length}</p>
+        </div>
+      </div>
+
+      <div className="flex flex-wrap gap-3 mb-4">
+        <div className="relative flex-1 min-w-[200px]">
+          <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+          <input
+            type="text"
+            placeholder="Search customer or tracking..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-white text-sm"
+          />
+        </div>
+        <select
+          value={storeFilter}
+          onChange={(e) => setStoreFilter(e.target.value)}
+          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm"
+        >
+          <option value="all">All Stores</option>
+          {stores.map((s) => (
+            <option key={s.id} value={s.id}>{s.storeName}</option>
+          ))}
+        </select>
+        <select
+          value={typeFilter}
+          onChange={(e) => setTypeFilter(e.target.value)}
+          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm"
+        >
+          <option value="all">All Types</option>
+          {types.map((t) => (
+            <option key={t} value={t!}>{t}</option>
+          ))}
+        </select>
+      </div>
+
+      {loading ? (
+        <p className="text-gray-400">Loading returns...</p>
+      ) : (
+        <div className="bg-gray-900 border border-gray-800 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-800 text-gray-400">
+                <tr>
+                  <th className="text-left px-4 py-3">Order/Tracking</th>
+                  <th className="text-left px-4 py-3">Customer</th>
+                  <th className="text-left px-4 py-3">Qty</th>
+                  <th className="text-left px-4 py-3">Price</th>
+                  <th className="text-left px-4 py-3">Type</th>
+                  <th className="text-left px-4 py-3">Store</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.slice(0, 300).map((c) => (
+                  <tr key={c.id} className="border-t border-gray-800 hover:bg-gray-850">
+                    <td className="px-4 py-3 text-gray-300 font-mono text-xs">{c.trackingNo}</td>
+                    <td className="px-4 py-3 text-white">{c.customerName || "N/A"}</td>
+                    <td className="px-4 py-3 text-gray-400">{c.quantity}</td>
+                    <td className="px-4 py-3 text-orange-400">Rs {(c.price || 0).toLocaleString()}</td>
+                    <td className="px-4 py-3">
+                      <span className={`px-2 py-1 rounded text-xs ${typeColors[c.returnType || ""] || "bg-gray-800 text-gray-400"}`}>
+                        {c.returnType || "unknown"}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-gray-400 text-xs">{storeName(c.storeId)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+          {filtered.length > 300 && (
+            <p className="text-center text-gray-500 text-xs py-3">
+              Showing first 300 of {filtered.length} returns
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
