@@ -33,6 +33,7 @@ const darazLinks = [
   { label: 'Returns Scan', href: '/dashboard/daraz/returns' },
   { label: 'Claims', href: '/dashboard/daraz/claims' },
   { label: 'Alerts', href: '/dashboard/daraz/alerts' },
+  { label: 'Import', href: '/dashboard/daraz/import' },
 ]
 
 const reportLinks = [
