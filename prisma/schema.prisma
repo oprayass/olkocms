@@ -340,6 +340,8 @@ model DarazScan {
   itemName     String?
   price        Float?
   customerName String?
+    storeId      String?
+    wrongStore   Boolean  @default(false)
   createdAt    DateTime @default(now())
 }
 
