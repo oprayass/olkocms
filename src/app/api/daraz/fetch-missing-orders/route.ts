@@ -48,11 +48,15 @@ export async function POST(req: NextRequest) {
     });
     const allScans = alertOrders.filter((a) => a.darazOrderId);
 
-    // already DarazOrder मा भएका हटाउने
+    // already DarazOrder मा भएका — तर complete (product छ, customerName "—" होइन) मात्र skip
     const existingOrders = await prisma.darazOrder.findMany({
-      select: { darazOrderId: true },
+      select: { darazOrderId: true, product: true, customerName: true },
     });
-    const existingSet = new Set(existingOrders.map((o) => o.darazOrderId));
+    const existingSet = new Set(
+      existingOrders
+        .filter((o) => o.product && o.product !== "Unknown product" && o.customerName !== "—")
+        .map((o) => o.darazOrderId)
+    );
     const missingOrderIds = allScans
       .map((s) => s.darazOrderId!)
       .filter((id) => !existingSet.has(id));
