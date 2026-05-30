@@ -11,6 +11,7 @@ interface Claim {
   quantity: number;
   price: number | null;
   returnType: string | null;
+  customerComment: string | null;
   claimStatus: string;
   storeId: string | null;
   createdAt: string;
@@ -28,6 +29,38 @@ const typeColors: Record<string, string> = {
   failed_delivery: "bg-red-900 text-red-300",
 };
 
+function startOf(period: string): { from: Date | null; to: Date | null } {
+  const now = new Date();
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const day = today.getDay(); // 0 = Sun
+  const mondayOffset = day === 0 ? 6 : day - 1;
+  switch (period) {
+    case "today":
+      return { from: today, to: new Date(today.getTime() + 86400000) };
+    case "yesterday":
+      return { from: new Date(today.getTime() - 86400000), to: today };
+    case "this_week": {
+      const f = new Date(today.getTime() - mondayOffset * 86400000);
+      return { from: f, to: new Date(f.getTime() + 7 * 86400000) };
+    }
+    case "last_week": {
+      const tEnd = new Date(today.getTime() - mondayOffset * 86400000);
+      const f = new Date(tEnd.getTime() - 7 * 86400000);
+      return { from: f, to: tEnd };
+    }
+    case "this_month":
+      return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 1) };
+    case "last_month":
+      return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 1) };
+    case "this_year":
+      return { from: new Date(now.getFullYear(), 0, 1), to: new Date(now.getFullYear() + 1, 0, 1) };
+    case "last_year":
+      return { from: new Date(now.getFullYear() - 1, 0, 1), to: new Date(now.getFullYear(), 0, 1) };
+    default:
+      return { from: null, to: null };
+  }
+}
+
 export default function ReturnsListPage() {
   const [claims, setClaims] = useState<Claim[]>([]);
   const [stores, setStores] = useState<Store[]>([]);
@@ -36,6 +69,9 @@ export default function ReturnsListPage() {
   const [search, setSearch] = useState("");
   const [storeFilter, setStoreFilter] = useState("all");
   const [typeFilter, setTypeFilter] = useState("all");
+  const [period, setPeriod] = useState("all");
+  const [customFrom, setCustomFrom] = useState("");
+  const [customTo, setCustomTo] = useState("");
   const [message, setMessage] = useState("");
 
   const loadData = async () => {
@@ -55,9 +91,7 @@ export default function ReturnsListPage() {
     setLoading(false);
   };
 
-  useEffect(() => {
-    loadData();
-  }, []);
+  useEffect(() => { loadData(); }, []);
 
   const handleFetch = async () => {
     setFetching(true);
@@ -82,13 +116,32 @@ export default function ReturnsListPage() {
     return s ? s.storeName : "Unknown";
   };
 
-  const filtered = claims.filter((c) => {
+  let filtered = claims.filter((c) => {
     const matchSearch =
       (c.customerName || "").toLowerCase().includes(search.toLowerCase()) ||
-      c.trackingNo.includes(search);
+      c.trackingNo.toLowerCase().includes(search.toLowerCase()) ||
+      (c.darazOrderId || "").includes(search);
     const matchStore = storeFilter === "all" || c.storeId === storeFilter;
     const matchType = typeFilter === "all" || c.returnType === typeFilter;
-    return matchSearch && matchStore && matchType;
+
+    let matchDate = true;
+    const created = new Date(c.createdAt);
+    if (period === "custom") {
+      if (customFrom) matchDate = matchDate && created >= new Date(customFrom);
+      if (customTo) matchDate = matchDate && created < new Date(new Date(customTo).getTime() + 86400000);
+    } else if (period !== "all") {
+      const { from, to } = startOf(period);
+      if (from && to) matchDate = created >= from && created < to;
+    }
+    return matchSearch && matchStore && matchType && matchDate;
+  });
+
+  // store-wise sort: group by store name, then by date desc
+  filtered = filtered.sort((a, b) => {
+    const sa = storeName(a.storeId);
+    const sb = storeName(b.storeId);
+    if (sa !== sb) return sa.localeCompare(sb);
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
   });
 
   const totalValue = filtered.reduce((sum, c) => sum + (c.price || 0), 0);
@@ -140,33 +193,47 @@ export default function ReturnsListPage() {
           <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
           <input
             type="text"
-            placeholder="Search customer or tracking..."
+            placeholder="Search customer, order or tracking..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-white text-sm"
           />
         </div>
-        <select
-          value={storeFilter}
-          onChange={(e) => setStoreFilter(e.target.value)}
-          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm"
-        >
+        <select value={storeFilter} onChange={(e) => setStoreFilter(e.target.value)}
+          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm">
           <option value="all">All Stores</option>
-          {stores.map((s) => (
-            <option key={s.id} value={s.id}>{s.storeName}</option>
-          ))}
+          {stores.map((s) => <option key={s.id} value={s.id}>{s.storeName}</option>)}
         </select>
-        <select
-          value={typeFilter}
-          onChange={(e) => setTypeFilter(e.target.value)}
-          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm"
-        >
+        <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}
+          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm">
           <option value="all">All Types</option>
-          {types.map((t) => (
-            <option key={t} value={t!}>{t}</option>
-          ))}
+          {types.map((t) => <option key={t} value={t!}>{t}</option>)}
+        </select>
+        <select value={period} onChange={(e) => setPeriod(e.target.value)}
+          className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm">
+          <option value="all">All Time</option>
+          <option value="today">Today</option>
+          <option value="yesterday">Yesterday</option>
+          <option value="this_week">This Week</option>
+          <option value="last_week">Last Week</option>
+          <option value="this_month">This Month</option>
+          <option value="last_month">Last Month</option>
+          <option value="this_year">This Year</option>
+          <option value="last_year">Last Year</option>
+          <option value="custom">Custom Range</option>
         </select>
       </div>
+
+      {period === "custom" && (
+        <div className="flex flex-wrap gap-3 mb-4 items-center">
+          <span className="text-gray-400 text-sm">From</span>
+          <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)}
+            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-white text-sm" />
+          <span className="text-gray-400 text-sm">To</span>
+          <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)}
+            className="bg-gray-900 border border-gray-800 rounded-lg px-3 py-2 text-white text-sm" />
+        </div>
+      )}
 
       {loading ? (
         <p className="text-gray-400">Loading returns...</p>
@@ -177,16 +244,19 @@ export default function ReturnsListPage() {
               <thead className="bg-gray-800 text-gray-400">
                 <tr>
                   <th className="text-left px-4 py-3">Order ID</th>
+                  <th className="text-left px-4 py-3">Tracking No</th>
                   <th className="text-left px-4 py-3">Customer</th>
                   <th className="text-left px-4 py-3">Qty</th>
                   <th className="text-left px-4 py-3">Price</th>
                   <th className="text-left px-4 py-3">Type</th>
                   <th className="text-left px-4 py-3">Store</th>
+                  <th className="text-left px-4 py-3">Date</th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.slice(0, 300).map((c) => (
+                {filtered.slice(0, 400).map((c) => (
                   <tr key={c.id} className="border-t border-gray-800 hover:bg-gray-850">
+                    <td className="px-4 py-3 text-gray-400 font-mono text-xs">{c.darazOrderId || "-"}</td>
                     <td className="px-4 py-3 text-gray-300 font-mono text-xs">{c.trackingNo}</td>
                     <td className="px-4 py-3 text-white">{c.customerName || "N/A"}</td>
                     <td className="px-4 py-3 text-gray-400">{c.quantity}</td>
@@ -197,14 +267,15 @@ export default function ReturnsListPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{storeName(c.storeId)}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{new Date(c.createdAt).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
-          {filtered.length > 300 && (
+          {filtered.length > 400 && (
             <p className="text-center text-gray-500 text-xs py-3">
-              Showing first 300 of {filtered.length} returns
+              Showing first 400 of {filtered.length} returns
             </p>
           )}
         </div>

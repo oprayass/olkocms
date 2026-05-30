@@ -3,22 +3,26 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { useSession, signOut } from 'next-auth/react'
 import { useState } from 'react'
-import { ChevronDown } from 'lucide-react'
+import {
+  ChevronDown, LayoutDashboard, Package, MessageSquare, ShoppingBag,
+  Bell, Megaphone, Users, ClipboardList, Truck, PenLine, CreditCard,
+  Settings, Store, ShoppingCart, BarChart3
+} from 'lucide-react'
 
 const nav = [
-  { label: 'Dashboard', href: '/dashboard', icon: 'ðŸ“Š' },
-  { label: 'Orders', href: '/dashboard/orders', icon: 'ðŸ“¦' },
-  { label: 'Messages', href: '/dashboard/messages', icon: 'ðŸ’¬' },
-  { label: 'Products', href: '/dashboard/products', icon: 'ðŸ›ï¸' },
-  { label: 'Follow-ups', href: '/dashboard/followups', icon: 'ðŸ””' },
-  { label: 'Ads', href: '/dashboard/ads', icon: 'ðŸ“¢' },
-  { label: 'Staff', href: '/dashboard/staff', icon: 'ðŸ‘¥' },
-  { label: 'Activity', href: '/dashboard/activity', icon: 'ðŸ“‹' },
-  { label: 'Courier', href: '/dashboard/courier', icon: 'ðŸšš' },
-  { label: 'Content', href: '/dashboard/content', icon: 'âœï¸' },
-  { label: 'Subscriptions', href: '/dashboard/subscriptions', icon: 'ðŸ’³' },
-  { label: 'Settings', href: '/dashboard/settings', icon: 'âš™ï¸' },
-  { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores', icon: 'ðŸª' },
+  { label: 'Dashboard', href: '/dashboard', Icon: LayoutDashboard },
+  { label: 'Orders', href: '/dashboard/orders', Icon: Package },
+  { label: 'Messages', href: '/dashboard/messages', Icon: MessageSquare },
+  { label: 'Products', href: '/dashboard/products', Icon: ShoppingBag },
+  { label: 'Follow-ups', href: '/dashboard/followups', Icon: Bell },
+  { label: 'Ads', href: '/dashboard/ads', Icon: Megaphone },
+  { label: 'Staff', href: '/dashboard/staff', Icon: Users },
+  { label: 'Activity', href: '/dashboard/activity', Icon: ClipboardList },
+  { label: 'Courier', href: '/dashboard/courier', Icon: Truck },
+  { label: 'Content', href: '/dashboard/content', Icon: PenLine },
+  { label: 'Subscriptions', href: '/dashboard/subscriptions', Icon: CreditCard },
+  { label: 'Settings', href: '/dashboard/settings', Icon: Settings },
+  { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores', Icon: Store },
 ]
 
 const darazLinks = [
@@ -50,21 +54,24 @@ export function Sidebar() {
         <p className="text-xs text-gray-400 mt-1">Social Commerce</p>
       </div>
       <nav className="flex-1 p-4 space-y-1 overflow-y-auto">
-        {nav.map((item) => (
-          <Link key={item.href} href={item.href}
-            className={'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ' +
-              (path === item.href ? 'bg-violet-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white')}>
-            <span>{item.icon}</span>
-            {item.label}
-          </Link>
-        ))}
+        {nav.map((item) => {
+          const Icon = item.Icon
+          return (
+            <Link key={item.href} href={item.href}
+              className={'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ' +
+                (path === item.href ? 'bg-violet-600 text-white font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white')}>
+              <Icon className="w-4 h-4" />
+              {item.label}
+            </Link>
+          )
+        })}
 
         {/* Daraz expandable */}
         <button
           onClick={() => setDarazOpen(!darazOpen)}
           className={'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ' +
             (path.startsWith('/dashboard/daraz') ? 'bg-orange-600/20 text-orange-400 font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white')}>
-          <span>ðŸ›’</span>
+          <ShoppingCart className="w-4 h-4" />
           <span className="flex-1 text-left">Daraz</span>
           <ChevronDown className={`w-4 h-4 transition-transform ${darazOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -85,7 +92,7 @@ export function Sidebar() {
           onClick={() => setReportsOpen(!reportsOpen)}
           className={'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ' +
             (path.startsWith('/dashboard/reports') ? 'bg-violet-600/20 text-violet-400 font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white')}>
-          <span>ðŸ“ˆ</span>
+          <BarChart3 className="w-4 h-4" />
           <span className="flex-1 text-left">Reports</span>
           <ChevronDown className={`w-4 h-4 transition-transform ${reportsOpen ? 'rotate-180' : ''}`} />
         </button>
