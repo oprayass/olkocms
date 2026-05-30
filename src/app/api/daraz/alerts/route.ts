@@ -1,22 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-
-const STORE_NAMES: Record<string, string> = {
-  yagyapremiums: "Yagya Premiums",
-  budgetdealsnepal: "Budget Deal",
-  blackdragonnepal: "Black Dragon",
-  dealmeonsnepal: "Deal Me",
-  firstdrop79: "New Idea",
-  gadgetfinder2020: "Raibaar Infotel",
-  gadgetsfindernepal: "Batuk Mart",
-  selfcarenepa: "Premium Lifestyle",
-  tb200247: "Best Gadget Nepal",
-};
-
-function getStoreName(storeId: string | null) {
-  if (!storeId) return null;
-  return STORE_NAMES[storeId] ?? storeId;
-}
+import { resolveStoreName } from "@/lib/storeMap";
 
 export async function GET() {
   try {
@@ -47,7 +31,7 @@ export async function GET() {
           if (order) {
             orderDetails = {
               ...order,
-              storeName: getStoreName(order.storeId) ?? "Unknown Store",
+              storeName: resolveStoreName(order.storeId),
             };
           }
         }
@@ -78,7 +62,7 @@ export async function GET() {
               status: null,
               trackingNo: scan.trackingNo ?? null,
               storeId: scan.storeId ?? null,
-              storeName: getStoreName(scan.storeId) ?? "Unknown Store",
+              storeName: resolveStoreName(scan.storeId),
               orderDate: scan.createdAt?.toISOString() ?? null,
               fromScan: true,
             };

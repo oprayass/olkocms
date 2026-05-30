@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
+import { resolveStoreCuid } from "@/lib/storeMap";
 
 export const dynamic = "force-dynamic";
 
@@ -97,7 +98,7 @@ export async function POST(req: NextRequest) {
               itemName: safeStr(row["Product Name "] ?? row["Product Name"]) ?? darazOrder?.product ?? null,
               price: safeFloat(row["Product Price *"] ?? row["product price "]),
               quantity: safeInt(row["Quantity "] ?? row["Product Quantity"]),
-              storeId: darazOrder?.storeId ?? safeStr(row["Store Name"] ?? row["Store Name "]),
+              storeId: darazOrder?.storeId ?? resolveStoreCuid(safeStr(row["Store Name"] ?? row["Store Name "])) ?? safeStr(row["Store Name"] ?? row["Store Name "]),
               scannedBy: safeStr(row["Checked By"]) ?? "excel-import",
             },
           });
@@ -116,7 +117,7 @@ export async function POST(req: NextRequest) {
               itemName: safeStr(row["Product Name "] ?? row["Product Name"]) ?? darazOrder?.product ?? null,
               price: safeFloat(row["product price "]),
               quantity: safeInt(row["Product Quantity"]),
-              storeId: darazOrder?.storeId ?? safeStr(row["Store Name "] ?? row["Store Name"]),
+              storeId: darazOrder?.storeId ?? resolveStoreCuid(safeStr(row["Store Name "] ?? row["Store Name"])) ?? safeStr(row["Store Name "] ?? row["Store Name"]),
               qcComment: safeStr(row["Daraz QC Reason"]),
               customerComment: safeStr(row["Customer return Reason "]),
               claimDate: safeDate(row["Claim Raised  Date "]),
