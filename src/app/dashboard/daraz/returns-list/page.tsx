@@ -1,4 +1,4 @@
-﻿"use client";
+"use client";
 import { useState, useEffect } from "react";
 import { RefreshCw, Search, RotateCcw } from "lucide-react";
 
@@ -176,7 +176,7 @@ export default function ReturnsListPage() {
             <table className="w-full text-sm">
               <thead className="bg-gray-800 text-gray-400">
                 <tr>
-                  <th className="text-left px-4 py-3">Order/Tracking</th>
+                  <th className="text-left px-4 py-3">Order ID</th>
                   <th className="text-left px-4 py-3">Customer</th>
                   <th className="text-left px-4 py-3">Qty</th>
                   <th className="text-left px-4 py-3">Price</th>

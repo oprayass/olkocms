@@ -6,25 +6,27 @@ import { useState } from 'react'
 import { ChevronDown } from 'lucide-react'
 
 const nav = [
-  { label: 'Dashboard', href: '/dashboard', icon: '📊' },
-  { label: 'Orders', href: '/dashboard/orders', icon: '📦' },
-  { label: 'Messages', href: '/dashboard/messages', icon: '💬' },
-  { label: 'Products', href: '/dashboard/products', icon: '🛍️' },
-  { label: 'Follow-ups', href: '/dashboard/followups', icon: '🔔' },
-  { label: 'Ads', href: '/dashboard/ads', icon: '📢' },
-  { label: 'Staff', href: '/dashboard/staff', icon: '👥' },
-  { label: 'Activity', href: '/dashboard/activity', icon: '📋' },
-  { label: 'Courier', href: '/dashboard/courier', icon: '🚚' },
-  { label: 'Content', href: '/dashboard/content', icon: '✍️' },
-  { label: 'Subscriptions', href: '/dashboard/subscriptions', icon: '💳' },
-  { label: 'Settings', href: '/dashboard/settings', icon: '⚙️' },
-  { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores', icon: '🏪' },
+  { label: 'Dashboard', href: '/dashboard', icon: 'ðŸ“Š' },
+  { label: 'Orders', href: '/dashboard/orders', icon: 'ðŸ“¦' },
+  { label: 'Messages', href: '/dashboard/messages', icon: 'ðŸ’¬' },
+  { label: 'Products', href: '/dashboard/products', icon: 'ðŸ›ï¸' },
+  { label: 'Follow-ups', href: '/dashboard/followups', icon: 'ðŸ””' },
+  { label: 'Ads', href: '/dashboard/ads', icon: 'ðŸ“¢' },
+  { label: 'Staff', href: '/dashboard/staff', icon: 'ðŸ‘¥' },
+  { label: 'Activity', href: '/dashboard/activity', icon: 'ðŸ“‹' },
+  { label: 'Courier', href: '/dashboard/courier', icon: 'ðŸšš' },
+  { label: 'Content', href: '/dashboard/content', icon: 'âœï¸' },
+  { label: 'Subscriptions', href: '/dashboard/subscriptions', icon: 'ðŸ’³' },
+  { label: 'Settings', href: '/dashboard/settings', icon: 'âš™ï¸' },
+  { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores', icon: 'ðŸª' },
 ]
 
 const darazLinks = [
   { label: 'Overview', href: '/dashboard/daraz' },
+  { label: 'Orders', href: '/dashboard/daraz/orders' },
+  { label: 'Returns List', href: '/dashboard/daraz/returns-list' },
   { label: 'Outbound', href: '/dashboard/daraz/outbound' },
-  { label: 'Returns', href: '/dashboard/daraz/returns' },
+  { label: 'Returns Scan', href: '/dashboard/daraz/returns' },
   { label: 'Claims', href: '/dashboard/daraz/claims' },
   { label: 'Alerts', href: '/dashboard/daraz/alerts' },
 ]
@@ -62,7 +64,7 @@ export function Sidebar() {
           onClick={() => setDarazOpen(!darazOpen)}
           className={'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ' +
             (path.startsWith('/dashboard/daraz') ? 'bg-orange-600/20 text-orange-400 font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white')}>
-          <span>🛒</span>
+          <span>ðŸ›’</span>
           <span className="flex-1 text-left">Daraz</span>
           <ChevronDown className={`w-4 h-4 transition-transform ${darazOpen ? 'rotate-180' : ''}`} />
         </button>
@@ -83,7 +85,7 @@ export function Sidebar() {
           onClick={() => setReportsOpen(!reportsOpen)}
           className={'w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm transition-all ' +
             (path.startsWith('/dashboard/reports') ? 'bg-violet-600/20 text-violet-400 font-medium' : 'text-gray-400 hover:bg-gray-800 hover:text-white')}>
-          <span>📈</span>
+          <span>ðŸ“ˆ</span>
           <span className="flex-1 text-left">Reports</span>
           <ChevronDown className={`w-4 h-4 transition-transform ${reportsOpen ? 'rotate-180' : ''}`} />
         </button>
