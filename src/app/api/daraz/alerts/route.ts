@@ -13,6 +13,11 @@ const STORE_NAMES: Record<string, string> = {
   tb200247: "Best Gadget Nepal",
 };
 
+function getStoreName(storeId: string | null) {
+  if (!storeId) return null;
+  return STORE_NAMES[storeId] ?? storeId;
+}
+
 export async function GET() {
   try {
     const alerts = await prisma.darazAlert.findMany({
@@ -21,9 +26,11 @@ export async function GET() {
 
     const enriched = await Promise.all(
       alerts.map(async (alert) => {
-        let order = null;
+        let orderDetails = null;
+
+        // 1. DarazOrder बाट खोज्ने
         if (alert.darazOrderId && alert.darazOrderId !== "unknown") {
-          order = await prisma.darazOrder.findFirst({
+          const order = await prisma.darazOrder.findFirst({
             where: { darazOrderId: alert.darazOrderId },
             select: {
               darazOrderId: true,
@@ -37,22 +44,54 @@ export async function GET() {
               orderDate: true,
             },
           });
+          if (order) {
+            orderDetails = {
+              ...order,
+              storeName: getStoreName(order.storeId) ?? "Unknown Store",
+            };
+          }
         }
-        return {
-          ...alert,
-          orderDetails: order
-            ? {
-                ...order,
-                storeName: STORE_NAMES[order.storeId ?? ""] ?? order.storeId ?? "Unknown Store",
-              }
-            : null,
-        };
+
+        // 2. DarazOrder मा नभेटिए DarazScan बाट खोज्ने
+        if (!orderDetails && alert.darazOrderId && alert.darazOrderId !== "unknown") {
+          const scan = await prisma.darazScan.findFirst({
+            where: { darazOrderId: alert.darazOrderId },
+            select: {
+              darazOrderId: true,
+              itemName: true,
+              productName: true,
+              price: true,
+              quantity: true,
+              trackingNo: true,
+              storeId: true,
+              scannedBy: true,
+              createdAt: true,
+            },
+          });
+          if (scan) {
+            orderDetails = {
+              darazOrderId: scan.darazOrderId ?? alert.darazOrderId,
+              product: scan.itemName ?? scan.productName ?? null,
+              customerName: null,
+              price: scan.price ?? null,
+              quantity: scan.quantity ?? 1,
+              status: null,
+              trackingNo: scan.trackingNo ?? null,
+              storeId: scan.storeId ?? null,
+              storeName: getStoreName(scan.storeId) ?? "Unknown Store",
+              orderDate: scan.createdAt?.toISOString() ?? null,
+              fromScan: true,
+            };
+          }
+        }
+
+        return { ...alert, orderDetails };
       })
     );
 
     return NextResponse.json(enriched);
-  } catch {
-    return NextResponse.json({ error: "Failed to fetch alerts" }, { status: 500 });
+  } catch (err) {
+    return NextResponse.json({ error: String(err).substring(0,150) }, { status: 500 });
   }
 }
 
