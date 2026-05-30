@@ -170,7 +170,10 @@ export default function OutboundPage() {
               {stats.recentScans.map((scan, i) => (
                 <div key={i} className="flex items-center justify-between py-1.5 border-b border-gray-800 last:border-0">
                   <span className="text-white font-mono text-xs">{scan.trackingNo}</span>
-                  <span className="text-gray-500 text-xs">{scan.scannedBy}</span>
+                  <div className="text-right">
+                    <div className="text-gray-400 text-xs">{scan.scannedBy}</div>
+                    <div className="text-gray-600 text-xs">{new Date(scan.createdAt).toLocaleString()}</div>
+                  </div>
                 </div>
               ))}
             </div>
