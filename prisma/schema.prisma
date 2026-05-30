@@ -162,6 +162,8 @@ model DarazStore {
   tokenExpiry  DateTime?
   isActive     Boolean   @default(true)
   status       String    @default("Active")
+  lastOrderFetch  DateTime?
+  lastReturnFetch DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
 }
@@ -178,6 +180,7 @@ model DarazOrder {
   returnStatus  String?
   paymentStatus String?
   storeId       String?
+  orderDate     DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }

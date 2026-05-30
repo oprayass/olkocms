@@ -34,7 +34,6 @@ export async function GET(req: NextRequest) {
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
     const storeIdParam = req.nextUrl.searchParams.get("store");
 
-    // single store (store-wise) or all
     const where: any = { isActive: true, accessToken: { not: null } };
     if (storeIdParam) where.id = storeIdParam;
     const stores = await prisma.darazStore.findMany({ where });
@@ -44,14 +43,20 @@ export async function GET(req: NextRequest) {
     }
 
     const returnStatuses = ["returned", "shipped_back", "shipped_back_success", "failed_delivery"];
-    const createdAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
 
     let totalSaved = 0;
     const results: any[] = [];
 
     for (const store of stores) {
       let storeCount = 0;
+      const fetchStart = new Date();
+
       try {
+        // Incremental: lastReturnFetch भए त्यसपछिको मात्र, नत्र last 90 days
+        const createdAfter = store.lastReturnFetch
+          ? store.lastReturnFetch.toISOString()
+          : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+
         for (const status of returnStatuses) {
           const ordersResp = await callDaraz("/orders/get", {
             created_after: createdAfter, limit: "100", offset: "0",
@@ -92,7 +97,8 @@ export async function GET(req: NextRequest) {
                   trackingNo, returnType: actualStatus, customerName, itemName,
                   customerComment: reason || existing.customerComment,
                   qcComment: shipmentProvider || existing.qcComment,
-                  price: parseFloat(o.price) || 0, quantity: o.items_count || 1, storeId: store.id, orderDate: o.created_at ? new Date(o.created_at) : null,
+                  price: parseFloat(o.price) || 0, quantity: o.items_count || 1,
+                  storeId: store.id, orderDate: o.created_at ? new Date(o.created_at) : null,
                 },
               });
             } else {
@@ -101,7 +107,8 @@ export async function GET(req: NextRequest) {
                   trackingNo, darazOrderId: orderId, itemName, customerName,
                   customerComment: reason, qcComment: shipmentProvider,
                   price: parseFloat(o.price) || 0, quantity: o.items_count || 1,
-                  returnType: actualStatus, claimStatus: "pending", storeId: store.id, orderDate: o.created_at ? new Date(o.created_at) : null,
+                  returnType: actualStatus, claimStatus: "pending",
+                  storeId: store.id, orderDate: o.created_at ? new Date(o.created_at) : null,
                 },
               });
             }
@@ -109,7 +116,19 @@ export async function GET(req: NextRequest) {
             totalSaved++;
           }
         }
-        results.push({ store: store.storeName, returns: storeCount });
+
+        // Successful fetch — lastReturnFetch update गर्ने
+        await prisma.darazStore.update({
+          where: { id: store.id },
+          data: { lastReturnFetch: fetchStart },
+        });
+
+        results.push({
+          store: store.storeName,
+          returns: storeCount,
+          incremental: !!store.lastReturnFetch,
+          createdAfter,
+        });
       } catch (storeErr) {
         results.push({ store: store.storeName, error: String(storeErr).substring(0, 100) });
       }
