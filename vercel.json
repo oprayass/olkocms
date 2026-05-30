@@ -1,8 +1,16 @@
-{
+﻿{
   "crons": [
     {
       "path": "/api/cron/expire-subscriptions",
       "schedule": "0 0 * * *"
+    },
+    {
+      "path": "/api/daraz/orders/fetch",
+      "schedule": "0 */6 * * *"
+    },
+    {
+      "path": "/api/daraz/token/refresh",
+      "schedule": "0 2 * * *"
     }
   ]
 }
