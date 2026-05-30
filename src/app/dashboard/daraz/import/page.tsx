@@ -34,6 +34,122 @@ interface ImportResult {
   error?: string;
 }
 
+function ToolButtons() {
+  const [busy, setBusy] = useState<string | null>(null);
+  const [log, setLog] = useState<string[]>([]);
+
+  const addLog = (msg: string) => setLog((prev) => [...prev, msg]);
+
+  const fetchMissing = async () => {
+    setBusy("fetch");
+    setLog([]);
+    addLog("🔄 Fetching missing orders from Daraz...");
+    let offset = 0;
+    let total = 0;
+    let hasMore = true;
+    while (hasMore) {
+      try {
+        const res = await fetch("/api/daraz/fetch-missing-orders", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offset }),
+        });
+        const data = await res.json();
+        if (data.error) { addLog("❌ Error: " + data.error); break; }
+        total += data.fetched;
+        addLog(`  Batch ${offset}: fetched ${data.fetched} (total ${total}/${data.totalMissing})`);
+        hasMore = data.nextOffset !== null && data.nextOffset !== undefined;
+        offset = data.nextOffset ?? 0;
+      } catch (e) {
+        addLog("❌ Network error: " + String(e).substring(0, 80));
+        break;
+      }
+    }
+    addLog(`✅ Done! Total fetched: ${total}`);
+    setBusy(null);
+  };
+
+  const runReconcile = async () => {
+    setBusy("reconcile");
+    setLog([]);
+    addLog("▶️ Running reconciliation...");
+    let offset = 0;
+    let created = 0;
+    let skipped = 0;
+    let hasMore = true;
+    while (hasMore) {
+      try {
+        const res = await fetch("/api/daraz/reconcile", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offset }),
+        });
+        const data = await res.json();
+        if (data.error) { addLog("❌ Error: " + data.error); break; }
+        created += data.created ?? 0;
+        skipped += data.skipped ?? 0;
+        hasMore = data.nextOffset !== null && data.nextOffset !== undefined;
+        offset = data.nextOffset ?? 0;
+      } catch (e) {
+        addLog("❌ Network error: " + String(e).substring(0, 80));
+        break;
+      }
+    }
+    addLog(`✅ Reconciliation done! Created: ${created}, Skipped: ${skipped}`);
+    setBusy(null);
+  };
+
+  const clearAlerts = async () => {
+    if (!confirm("सबै alerts delete हुनेछन्। पक्का?")) return;
+    setBusy("clear");
+    setLog([]);
+    try {
+      const res = await fetch("/api/daraz/alerts", { method: "DELETE" });
+      const data = await res.json();
+      addLog(`🗑️ Deleted ${data.deleted ?? 0} alerts`);
+    } catch {
+      addLog("❌ Failed to clear");
+    }
+    setBusy(null);
+  };
+
+  return (
+    <div className="space-y-3">
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <button
+          onClick={fetchMissing}
+          disabled={busy !== null}
+          className="px-4 py-3 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          {busy === "fetch" ? "Fetching..." : "🔄 Fetch Missing Orders"}
+        </button>
+        <button
+          onClick={runReconcile}
+          disabled={busy !== null}
+          className="px-4 py-3 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          {busy === "reconcile" ? "Running..." : "▶️ Run Reconciliation"}
+        </button>
+        <button
+          onClick={clearAlerts}
+          disabled={busy !== null}
+          className="px-4 py-3 bg-red-600/80 hover:bg-red-700 disabled:opacity-40 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          {busy === "clear" ? "Clearing..." : "🗑️ Clear All Alerts"}
+        </button>
+      </div>
+      {log.length > 0 && (
+        <div className="bg-black/40 rounded-lg p-3 max-h-48 overflow-y-auto font-mono text-xs text-gray-300 space-y-0.5">
+          {log.map((l, i) => <div key={i}>{l}</div>)}
+        </div>
+      )}
+      <p className="text-gray-500 text-xs">
+        क्रम: पहिले <b className="text-blue-400">Fetch Missing Orders</b> (Daraz बाट order details ल्याउने) → अनि <b className="text-emerald-400">Run Reconciliation</b> (alerts बनाउने)। Re-run गर्न पहिले <b className="text-red-400">Clear All Alerts</b>।
+      </p>
+    </div>
+  );
+}
+
 export default function ImportPage() {
   const [results, setResults] = useState<Record<string, ImportResult>>({});
   const [loading, setLoading] = useState<string | null>(null);
@@ -141,6 +257,13 @@ export default function ImportPage() {
             </div>
           );
         })}
+      </div>
+
+      {/* Tools Section */}
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 space-y-4">
+        <h2 className="text-white font-semibold flex items-center gap-2">🛠️ Reconciliation Tools</h2>
+        <p className="text-gray-400 text-xs">Import पछि यी tools क्रमैसँग चलाउनुहोस् — सबै data Daraz सँग sync र correctly map हुन्छ।</p>
+        <ToolButtons />
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-sm text-gray-400">

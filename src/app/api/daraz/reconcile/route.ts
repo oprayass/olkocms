@@ -42,10 +42,11 @@ export async function POST(req: NextRequest) {
         },
       });
 
+      const DELIVERED_STATUSES = ["delivered", "shipped", "transit_to_ship", "shipped_back", "returned", "canceled", "cancelled"];
       const shouldAlert =
         !order ||
-        order.status === "ready_to_ship" ||
-        order.status === "pending";
+        (!DELIVERED_STATUSES.includes((order.status ?? "").toLowerCase()) &&
+         (order.status === "ready_to_ship" || order.status === "pending" || order.status === "packed" || order.status === "unknown"));
 
       if (!shouldAlert) { skipped++; continue; }
 
