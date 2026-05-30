@@ -37,26 +37,16 @@ export async function GET() {
     });
     if (!store) return NextResponse.json({ error: "No store" }, { status: 400 });
 
-    const createdAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-    const results: any = {};
+    // ek returned claim bata order_id linw
+    const claim = await prisma.darazClaim.findFirst({
+      where: { storeId: store.id, darazOrderId: { not: null } },
+    });
+    if (!claim) return NextResponse.json({ error: "No claim for this store" }, { status: 400 });
 
-    // returned status orders
-    const returnedOrders = await callDaraz("/orders/get", {
-      status: "returned", created_after: createdAfter, limit: "20", offset: "0",
-      sort_by: "created_at", sort_direction: "DESC",
-    }, store, appKey, appSecret);
-    results.returnedOrders = returnedOrders;
+    const orderId = claim.darazOrderId!;
+    const itemsResp = await callDaraz("/order/items/get", { order_id: orderId }, store, appKey, appSecret);
 
-    // pahilo returned order bata reverse detail try
-    const firstOrder = returnedOrders?.data?.orders?.[0];
-    if (firstOrder) {
-      results.firstOrderId = firstOrder.order_id;
-      results.reverseDetail = await callDaraz("/order/reverse/return/detail/list", {
-        reverse_order_id: String(firstOrder.order_id),
-      }, store, appKey, appSecret);
-    }
-
-    return NextResponse.json({ store: store.storeName, results });
+    return NextResponse.json({ store: store.storeName, orderId, itemsResponse: itemsResp });
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 300) }, { status: 500 });
   }
