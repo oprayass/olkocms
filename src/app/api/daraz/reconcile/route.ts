@@ -14,10 +14,13 @@ export async function POST(req: NextRequest) {
     const twoMonthsAgo = new Date();
     twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
 
-    // 1. Outbound scans — trackingNo वा darazOrderId बाट match
+    // 1. Outbound scans — last 10 days मात्र
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
     const outboundScans = await prisma.darazScan.findMany({
       where: {
         scanType: "outbound",
+        createdAt: { gte: tenDaysAgo },
         OR: [
           { trackingNo: { not: null } },
           { darazOrderId: { not: null } },
