@@ -143,10 +143,10 @@ export default function ClaimEditPopup({ claim, onClose, onSaved }: Props) {
           <>
           {/* QC reason (Daraz QC reason) */}
           <div>
-            <label className={labelCls}>QC Reason (हामीले पठाउँदाको कारण)</label>
+            <label className={labelCls}>Daraz QC Reason (Seller Center बाट)</label>
             <input className={inputCls} value={form.qcComment}
               onChange={(e) => setForm({ ...form, qcComment: e.target.value })}
-              placeholder="QC ले देखेको / पठाउँदाको कारण..." />
+              placeholder="Seller Center को QC return reason..." />
           </div>
 
           <div className="grid grid-cols-2 gap-3">
