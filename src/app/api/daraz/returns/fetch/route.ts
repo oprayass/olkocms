@@ -33,6 +33,8 @@ export async function GET(req: NextRequest) {
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
     const storeIdParam = req.nextUrl.searchParams.get("store");
+    const statusParam = req.nextUrl.searchParams.get("status"); // optional: एक status मात्र (backfill batching)
+    const skipItems = req.nextUrl.searchParams.get("skipItems") === "1"; // item detail call छोड्ने (छिटो)
 
     const where: any = { isActive: true, accessToken: { not: null } };
     if (storeIdParam) where.id = storeIdParam;
@@ -42,7 +44,8 @@ export async function GET(req: NextRequest) {
       return NextResponse.json({ error: "No store found" }, { status: 400 });
     }
 
-    const returnStatuses = ["returned", "shipped_back", "shipped_back_success", "failed_delivery"];
+    const allStatuses = ["returned", "shipped_back", "shipped_back_success", "failed_delivery"];
+    const returnStatuses = statusParam ? [statusParam] : allStatuses;
 
     let totalSaved = 0;
     const results: any[] = [];
@@ -52,7 +55,6 @@ export async function GET(req: NextRequest) {
       const fetchStart = new Date();
 
       try {
-        // Incremental: lastReturnFetch भए त्यसपछिको मात्र, नत्र last 90 days
         const createdAfter = store.lastReturnFetch
           ? store.lastReturnFetch.toISOString()
           : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -75,16 +77,18 @@ export async function GET(req: NextRequest) {
             let itemName = o.items_count ? `${o.items_count} item(s)` : "Daraz Item";
             let reason = "";
             let shipmentProvider = "";
-            try {
-              const itemsResp = await callDaraz("/order/items/get", { order_id: orderId }, store, appKey, appSecret);
-              const item = itemsResp?.data?.[0];
-              if (item) {
-                if (item.tracking_code) trackingNo = item.tracking_code;
-                if (item.name) itemName = item.name;
-                if (item.reason) reason = item.reason;
-                if (item.shipment_provider) shipmentProvider = item.shipment_provider;
-              }
-            } catch {}
+            if (!skipItems) {
+              try {
+                const itemsResp = await callDaraz("/order/items/get", { order_id: orderId }, store, appKey, appSecret);
+                const item = itemsResp?.data?.[0];
+                if (item) {
+                  if (item.tracking_code) trackingNo = item.tracking_code;
+                  if (item.name) itemName = item.name;
+                  if (item.reason) reason = item.reason;
+                  if (item.shipment_provider) shipmentProvider = item.shipment_provider;
+                }
+              } catch {}
+            }
 
             const existing = await prisma.darazClaim.findFirst({
               where: { darazOrderId: orderId },
@@ -117,16 +121,19 @@ export async function GET(req: NextRequest) {
           }
         }
 
-        // Successful fetch — lastReturnFetch update गर्ने
-        await prisma.darazStore.update({
-          where: { id: store.id },
-          data: { lastReturnFetch: fetchStart },
-        });
+        // lastReturnFetch update — सबै statuses को full pass भएमा मात्र (statusParam नभए)
+        if (!statusParam) {
+          await prisma.darazStore.update({
+            where: { id: store.id },
+            data: { lastReturnFetch: fetchStart },
+          });
+        }
 
         results.push({
           store: store.storeName,
           returns: storeCount,
           incremental: !!store.lastReturnFetch,
+          statusFilter: statusParam || "all",
           createdAfter,
         });
       } catch (storeErr) {
