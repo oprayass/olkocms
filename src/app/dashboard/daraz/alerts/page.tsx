@@ -50,7 +50,7 @@ export default function AlertsPage() {
     try {
       const res = await fetch("/api/daraz/reconcile", { method: "POST" });
       const data = await res.json();
-      setReconcileResult(data);
+      setReconcileResult({ created: data?.created ?? 0, skipped: data?.skipped ?? 0 });
       await fetchAlerts();
     } catch {
       setReconcileResult({ created: -1, skipped: -1 });
