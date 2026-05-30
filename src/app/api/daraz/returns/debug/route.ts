@@ -37,23 +37,24 @@ export async function GET() {
     });
     if (!store) return NextResponse.json({ error: "No store" }, { status: 400 });
 
-    const startTime = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
+    const createdAfter = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
     const results: any = {};
 
-    // Try 1: reverse order list
-    results.tryReverseList = await callDaraz("/reverse/getreverseorderlist", {
-      page_size: "10", page_no: "1", start_time: startTime,
+    // returned status orders
+    const returnedOrders = await callDaraz("/orders/get", {
+      status: "returned", created_after: createdAfter, limit: "20", offset: "0",
+      sort_by: "created_at", sort_direction: "DESC",
     }, store, appKey, appSecret);
+    results.returnedOrders = returnedOrders;
 
-    // Try 2: another common path
-    results.tryReverseListV2 = await callDaraz("/reverse/order/list/get", {
-      page_size: "10", page_no: "1",
-    }, store, appKey, appSecret);
-
-    // Try 3: orders with return status filter
-    results.tryOrdersReturn = await callDaraz("/orders/get", {
-      status: "returned", limit: "10", offset: "0", sort_by: "created_at", sort_direction: "DESC",
-    }, store, appKey, appSecret);
+    // pahilo returned order bata reverse detail try
+    const firstOrder = returnedOrders?.data?.orders?.[0];
+    if (firstOrder) {
+      results.firstOrderId = firstOrder.order_id;
+      results.reverseDetail = await callDaraz("/order/reverse/return/detail/list", {
+        reverse_order_id: String(firstOrder.order_id),
+      }, store, appKey, appSecret);
+    }
 
     return NextResponse.json({ store: store.storeName, results });
   } catch (error) {
