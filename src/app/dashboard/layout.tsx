@@ -1,6 +1,6 @@
 import { Sidebar } from '@/components/dashboard/Sidebar'
 import { getServerSession } from 'next-auth'
-import { authOptions } from '@/app/api/auth/[...nextauth]/route'
+import { authOptions } from '@/lib/auth'
 import { SessionProvider } from '@/components/SessionProvider'
 
 export default async function DashboardLayout({ children }: { children: React.ReactNode }) {
