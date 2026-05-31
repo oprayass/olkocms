@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { RotateCcw, CheckCircle, AlertTriangle, Clock, AlertOctagon } from "lucide-react";
+import { validateTracking } from "@/lib/trackingValidator";
 
 interface DupInfo {
   trackingNo: string;
@@ -25,6 +26,7 @@ interface Stats {
 
 export default function ReturnsScanPage() {
   const [trackingNo, setTrackingNo] = useState("");
+  const [invalidWarn, setInvalidWarn] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: "success" | "error" | "warning"; text: string } | null>(null);
   const [stats, setStats] = useState<Stats>({ todayCount: 0, totalCount: 0, wrongStoreCount: 0, recentScans: [] });
@@ -80,7 +82,19 @@ export default function ReturnsScanPage() {
 
   const handleScan = () => {
     if (!trackingNo.trim() || loading) return;
-    doScan(trackingNo.trim(), false);
+    const v = validateTracking(trackingNo);
+    if (!v.valid) {
+      setInvalidWarn(v.reason || "Invalid format");
+      setMessage(null);
+      return;
+    }
+    setInvalidWarn(null);
+    doScan(v.cleaned, false);
+  };
+  const forceAdd = () => {
+    if (!trackingNo.trim() || loading) return;
+    setInvalidWarn(null);
+    doScan(trackingNo.trim().toUpperCase(), false);
   };
 
   const replaceOld = () => {
@@ -139,6 +153,26 @@ export default function ReturnsScanPage() {
         >
           {loading ? "Scanning..." : "Confirm Inbound Scan"}
         </button>
+
+        {invalidWarn && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-4 space-y-3">
+            <div className="flex items-start gap-2">
+              <AlertOctagon className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
+              <div className="text-sm">
+                <p className="text-red-400 font-medium">Invalid tracking format</p>
+                <p className="text-gray-400 text-xs mt-1">{invalidWarn}</p>
+                <p className="text-gray-500 text-xs mt-1">Standard: DEXNP025527286, UPANP000318133, or PND-NP-000717568</p>
+              </div>
+            </div>
+            <button
+              onClick={forceAdd}
+              disabled={loading}
+              className="w-full bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white font-medium py-2.5 rounded-lg text-sm transition-colors"
+            >
+              Force Add (verify first)
+            </button>
+          </div>
+        )}
 
         {message && (
           <div className={`flex items-center gap-2 p-3 rounded-lg text-sm ${
