@@ -84,7 +84,7 @@ export async function PATCH(req: NextRequest) {
     if (!staffId) return NextResponse.json({ error: 'staffId required' }, { status: 400 })
     const temp = Math.random().toString(36).slice(-8) + 'A1'
     const hash = await bcrypt.hash(temp, 10)
-    await prisma.staff.update({ where: { id: staffId }, data: { password: hash } })
+    await prisma.staff.update({ where: { id: staffId }, data: { password: hash, passwordChangedAt: new Date() } })
     return NextResponse.json({ success: true, tempPassword: temp })
   } catch (error) {
     return NextResponse.json({ error: 'Failed to reset password' }, { status: 500 })

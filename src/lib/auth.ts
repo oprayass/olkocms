@@ -18,7 +18,6 @@ export const authOptions: NextAuthOptions = {
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
 
-        // Staff table मा खोज्ने, नभए User table
         const staff = await prisma.staff.findUnique({ where: { email: credentials.email } })
         const account = staff || await prisma.user.findFirst({ where: { email: credentials.email } })
         if (!account || !account.password) return null
@@ -40,17 +39,43 @@ export const authOptions: NextAuthOptions = {
         }
 
         if (!ok) return null
-        return { id: account.id, email: account.email, name: account.name, role: account.role }
+        return {
+          id: account.id,
+          email: account.email,
+          name: account.name,
+          role: account.role,
+          accountType: isStaff ? 'staff' : 'user',
+          pwChangedAt: account.passwordChangedAt ? account.passwordChangedAt.getTime() : 0,
+        } as any
       }
     })
   ],
   callbacks: {
-    jwt({ token, user }) {
-      if (user) token.role = (user as any).role
+    async jwt({ token, user }) {
+      if (user) {
+        token.role = (user as any).role
+        token.accountType = (user as any).accountType
+        token.pwChangedAt = (user as any).pwChangedAt
+      }
       return token
     },
-    session({ session, token }) {
-      if (session.user) (session.user as any).role = token.role
+    async session({ session, token }) {
+      // password change भएको छ कि check — भएको भए session invalid
+      const email = session.user?.email
+      if (email) {
+        const acct = token.accountType === 'staff'
+          ? await prisma.staff.findUnique({ where: { email }, select: { passwordChangedAt: true } })
+          : await prisma.user.findFirst({ where: { email }, select: { passwordChangedAt: true } })
+        const dbTime = acct?.passwordChangedAt ? acct.passwordChangedAt.getTime() : 0
+        const tokenTime = (token.pwChangedAt as number) || 0
+        // DB मा password change token जारी भएपछि भयो → logout
+        if (dbTime > tokenTime) {
+          return null as any
+        }
+      }
+      if (session.user) {
+        (session.user as any).role = token.role
+      }
       return session
     }
   },

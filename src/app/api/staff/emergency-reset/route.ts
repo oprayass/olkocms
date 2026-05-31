@@ -24,13 +24,13 @@ export async function POST(req: NextRequest) {
     // Staff मा खोज्ने, नभए User
     const staff = await prisma.staff.findUnique({ where: { email } });
     if (staff) {
-      await prisma.staff.update({ where: { id: staff.id }, data: { password: hash } });
+      await prisma.staff.update({ where: { id: staff.id }, data: { password: hash, passwordChangedAt: new Date() } });
       return NextResponse.json({ success: true, message: `Password reset for staff ${email}` });
     }
 
     const user = await prisma.user.findFirst({ where: { email } });
     if (user) {
-      await prisma.user.update({ where: { id: user.id }, data: { password: hash } });
+      await prisma.user.update({ where: { id: user.id }, data: { password: hash, passwordChangedAt: new Date() } });
       return NextResponse.json({ success: true, message: `Password reset for user ${email}` });
     }
 

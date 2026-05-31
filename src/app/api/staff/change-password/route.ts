@@ -42,9 +42,9 @@ export async function POST(req: NextRequest) {
 
     const newHash = await bcrypt.hash(newPassword, 10);
     if (isStaff) {
-      await prisma.staff.update({ where: { id: account.id }, data: { password: newHash } });
+      await prisma.staff.update({ where: { id: account.id }, data: { password: newHash, passwordChangedAt: new Date() } });
     } else {
-      await prisma.user.update({ where: { id: account.id }, data: { password: newHash } });
+      await prisma.user.update({ where: { id: account.id }, data: { password: newHash, passwordChangedAt: new Date() } });
     }
 
     return NextResponse.json({ success: true });
