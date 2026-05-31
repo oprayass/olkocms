@@ -9,14 +9,14 @@ export async function GET() {
     todayStart.setHours(0, 0, 0, 0);
 
     const [todayCount, totalCount, wrongStoreCount, recentScans] = await Promise.all([
-      prisma.darazScan.count({ where: { scanType: "inbound", createdAt: { gte: todayStart } } }),
-      prisma.darazScan.count({ where: { scanType: "inbound" } }),
-      prisma.darazScan.count({ where: { scanType: "inbound", wrongStore: true } }),
+      prisma.darazScan.count({ where: { scanType: "inbound", deleted: false, createdAt: { gte: todayStart } } }),
+      prisma.darazScan.count({ where: { scanType: "inbound", deleted: false } }),
+      prisma.darazScan.count({ where: { scanType: "inbound", wrongStore: true, deleted: false } }),
       prisma.darazScan.findMany({
-        where: { scanType: "inbound", createdAt: { gte: todayStart } },
+        where: { scanType: "inbound", deleted: false, createdAt: { gte: todayStart } },
         orderBy: { createdAt: "desc" },
         take: 15,
-        select: { trackingNo: true, createdAt: true, scannedBy: true, wrongStore: true, storeId: true, itemName: true },
+        select: { id: true, trackingNo: true, createdAt: true, scannedBy: true, wrongStore: true, storeId: true, itemName: true },
       }),
     ]);
 
