@@ -129,7 +129,7 @@ export const authOptions: NextAuthOptions = {
         const dbTime = acct?.passwordChangedAt ? acct.passwordChangedAt.getTime() : 0
         const tokenTime = (token.pwChangedAt as number) || 0
         if (dbTime > tokenTime) {
-          return null as any
+          (session as any).expired = true
         }
       }
       if (session.user) {

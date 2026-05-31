@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { Lock, CheckCircle, AlertOctagon } from "lucide-react";
+import { signOut } from "next-auth/react";
 
 export default function ChangePasswordPage() {
   const [current, setCurrent] = useState("");
@@ -32,7 +33,8 @@ export default function ChangePasswordPage() {
       });
       const data = await res.json();
       if (res.ok && data.success) {
-        setMsg({ type: "success", text: "Password successfully changed!" });
+        setMsg({ type: "success", text: "Password changed! Logging out... फेरि नयाँ password ले login गर्नुहोस्।" });
+        setTimeout(() => signOut({ callbackUrl: "/login" }), 1800);
         setCurrent(""); setNext(""); setConfirm("");
       } else {
         setMsg({ type: "error", text: data.error || "Failed" });
