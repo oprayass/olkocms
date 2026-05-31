@@ -22,6 +22,7 @@ const nav = [
   { label: 'Content', href: '/dashboard/content', Icon: PenLine },
   { label: 'Subscriptions', href: '/dashboard/subscriptions', Icon: CreditCard },
   { label: 'Settings', href: '/dashboard/settings', Icon: Settings },
+  { label: 'Change Password', href: '/dashboard/settings/password', Icon: Settings },
   { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores', Icon: Store },
 ]
 

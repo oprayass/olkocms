@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import { NextRequest } from 'next/server'
+import bcrypt from 'bcryptjs'
 
 const defaultPermissions = {
   Sales: {
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
   try {
     const body = await req.json()
     const { name, email, phone, role, password, permissions, subscriptionId } = body
+    const hashedPassword = password ? await bcrypt.hash(password, 10) : null
     if (!name || !email) return NextResponse.json({ error: 'Name and email required' }, { status: 400 })
     const rolePerms = defaultPermissions[role as keyof typeof defaultPermissions] || defaultPermissions.Sales
     const finalPerms = permissions || rolePerms
@@ -56,7 +58,7 @@ export async function POST(req: Request) {
       data: {
         name, email, phone,
         role: role || 'Sales',
-        password: password || null,
+        password: hashedPassword,
         status: 'Active',
         joinDate: new Date().toISOString().split('T')[0],
         subscriptionId: subscriptionId || null,
