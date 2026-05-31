@@ -58,6 +58,7 @@ export async function POST(req: NextRequest) {
     for (const s of stores) storeMap[s.id] = s;
 
     let filled = 0;
+    const diag: any[] = [];
     for (const ord of orders) {
       // try order's own store first, then all stores
       const tryStores = ord.storeId && storeMap[ord.storeId] ? [storeMap[ord.storeId], ...stores] : stores;
@@ -81,7 +82,7 @@ export async function POST(req: NextRequest) {
           const data = await res.json();
 
           // skip stores that can't see this order (wrong store / no permission)
-          if (data?.code && data.code !== "0") continue;
+          if (data?.code && data.code !== "0") { diag.push({ o: ord.darazOrderId, store: store.email, code: data.code }); continue; }
 
           const deliveredMs = extractDeliveredTime(data);
           if (deliveredMs) {
@@ -92,7 +93,7 @@ export async function POST(req: NextRequest) {
             filled++;
             break; // done with this order
           }
-          // valid response but no delivered stage yet - stop trying other stores
+          diag.push({ o: ord.darazOrderId, store: store.email, code: data?.code, hasResult: !!data?.result, delivered: deliveredMs });
           break;
         } catch { /* next store */ }
       }
@@ -102,6 +103,7 @@ export async function POST(req: NextRequest) {
       success: true,
       processed: orders.length,
       filled,
+      diag,
       nextOffset: offset + limit,
       done: orders.length < limit,
     });
