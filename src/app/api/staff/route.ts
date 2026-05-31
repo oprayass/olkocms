@@ -2,6 +2,8 @@ import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import { NextRequest } from 'next/server'
 import bcrypt from 'bcryptjs'
+import { getServerSession } from 'next-auth'
+import { authOptions } from '@/lib/auth'
 
 const defaultPermissions = {
   Sales: {
@@ -68,5 +70,23 @@ export async function POST(req: Request) {
     return NextResponse.json(staff)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create staff' }, { status: 500 })
+  }
+}
+
+export async function PATCH(req: NextRequest) {
+  try {
+    const session = await getServerSession(authOptions)
+    const role = (session?.user as any)?.role
+    if (role !== 'ADMIN' && role !== 'admin' && role !== 'subscriber_admin') {
+      return NextResponse.json({ error: 'Permission denied' }, { status: 403 })
+    }
+    const { staffId } = await req.json()
+    if (!staffId) return NextResponse.json({ error: 'staffId required' }, { status: 400 })
+    const temp = Math.random().toString(36).slice(-8) + 'A1'
+    const hash = await bcrypt.hash(temp, 10)
+    await prisma.staff.update({ where: { id: staffId }, data: { password: hash } })
+    return NextResponse.json({ success: true, tempPassword: temp })
+  } catch (error) {
+    return NextResponse.json({ error: 'Failed to reset password' }, { status: 500 })
   }
 }

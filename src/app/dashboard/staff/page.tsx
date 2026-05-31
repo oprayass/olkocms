@@ -82,6 +82,21 @@ export default function StaffPage() {
     }
   }
 
+  const resetPassword = async (staffId: string, name: string) => {
+    if (!confirm('Reset password for ' + name + '? A temporary password will be generated.')) return
+    const res = await fetch('/api/staff', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ staffId })
+    })
+    const data = await res.json()
+    if (res.ok && data.tempPassword) {
+      alert('Temporary password for ' + name + ':\n\n' + data.tempPassword + '\n\nShare this with the staff. They can change it after login.')
+    } else {
+      alert(data.error || 'Reset failed')
+    }
+  }
+
   useEffect(() => { fetchStaff() }, [])
 
   const addStaff = async () => {
@@ -224,6 +239,12 @@ export default function StaffPage() {
                   Remove
                 </button>
               </div>
+              {(isAdmin || isSubAdmin) && (
+                <button onClick={() => resetPassword(s.id, s.name)}
+                  className="w-full mt-2 py-2 rounded-xl text-xs font-medium bg-amber-500/20 text-amber-400 border border-amber-500/30 hover:bg-amber-500/30">
+                  Reset Password
+                </button>
+              )}
 
               {expandedId === s.id && (
                 <div className="mt-3 p-3 bg-gray-800/50 rounded-xl border border-gray-700">
