@@ -15,6 +15,7 @@ interface DarazOrder {
   storeId: string | null;
   createdAt: string;
   orderDate: string | null;
+  deliveredAt: string | null;
 }
 
 interface Store {
@@ -178,7 +179,9 @@ export default function DarazOrdersPage() {
     const matchStatus = statusFilter === "all" || o.status === statusFilter;
 
     let matchDate = true;
-    const created = new Date(o.orderDate || o.createdAt);
+    // delivered filter मा deliveredAt ले छान्ने, अन्यथा orderDate
+    const useDelivered = statusFilter === "delivered" && o.deliveredAt;
+    const created = new Date(useDelivered ? o.deliveredAt! : (o.orderDate || o.createdAt));
     if (period === "custom") {
       if (customFrom) matchDate = matchDate && created >= new Date(customFrom);
       if (customTo) matchDate = matchDate && created < new Date(new Date(customTo).getTime() + 86400000);
