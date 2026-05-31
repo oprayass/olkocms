@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { RotateCcw, CheckCircle, AlertTriangle, Clock, AlertOctagon } from "lucide-react";
 import { validateTracking } from "@/lib/trackingValidator";
+import Link from "next/link";
 
 interface DupInfo {
   trackingNo: string;
@@ -121,18 +122,18 @@ export default function ReturnsScanPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-gray-900 border border-amber-500/20 rounded-xl p-4 text-center">
+        <Link href="/dashboard/daraz/scans?type=inbound&view=today" className="bg-gray-900 border border-amber-500/20 rounded-xl p-4 text-center hover:border-amber-500/50 transition-colors">
           <p className="text-3xl font-bold text-amber-400">{stats.todayCount}</p>
           <p className="text-gray-400 text-xs mt-1">Today</p>
-        </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+        </Link>
+        <Link href="/dashboard/daraz/scans?type=inbound&view=all" className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center hover:border-gray-600 transition-colors">
           <p className="text-3xl font-bold text-white">{stats.totalCount}</p>
           <p className="text-gray-400 text-xs mt-1">All Time</p>
-        </div>
-        <div className="bg-gray-900 border border-red-500/20 rounded-xl p-4 text-center">
+        </Link>
+        <Link href="/dashboard/daraz/scans?type=inbound&view=wrongStore" className="bg-gray-900 border border-red-500/20 rounded-xl p-4 text-center hover:border-red-500/50 transition-colors">
           <p className="text-3xl font-bold text-red-400">{stats.wrongStoreCount}</p>
           <p className="text-gray-400 text-xs mt-1">Wrong Store</p>
-        </div>
+        </Link>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import { Package, CheckCircle, Clock, TrendingUp, AlertTriangle, AlertOctagon } from "lucide-react";
 import { validateTracking } from "@/lib/trackingValidator";
+import Link from "next/link";
 
 interface ScanRecord {
   trackingNo: string;
@@ -115,18 +116,18 @@ export default function OutboundPage() {
       </div>
 
       <div className="grid grid-cols-3 gap-4">
-        <div className="bg-gray-900 border border-orange-500/20 rounded-xl p-4 text-center">
+        <Link href="/dashboard/daraz/scans?type=outbound&view=today" className="bg-gray-900 border border-orange-500/20 rounded-xl p-4 text-center hover:border-orange-500/50 transition-colors">
           <p className="text-3xl font-bold text-orange-400">{stats.todayCount}</p>
           <p className="text-gray-400 text-xs mt-1">Today</p>
-        </div>
+        </Link>
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
           <p className="text-3xl font-bold text-white">{sessionScans.length}</p>
           <p className="text-gray-400 text-xs mt-1">This Session</p>
         </div>
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center">
+        <Link href="/dashboard/daraz/scans?type=outbound&view=all" className="bg-gray-900 border border-gray-800 rounded-xl p-4 text-center hover:border-gray-600 transition-colors">
           <p className="text-3xl font-bold text-gray-300">{stats.totalCount}</p>
           <p className="text-gray-400 text-xs mt-1">All Time</p>
-        </div>
+        </Link>
       </div>
 
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
