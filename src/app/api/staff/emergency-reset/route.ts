@@ -4,8 +4,6 @@ import bcrypt from "bcryptjs";
 
 export const dynamic = "force-dynamic";
 
-// Emergency password reset — secret key required
-// Usage: POST { secret, email, newPassword }
 export async function POST(req: NextRequest) {
   try {
     const { secret, email, newPassword } = await req.json();
@@ -21,15 +19,22 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Password must be at least 6 characters" }, { status: 400 });
     }
 
+    const hash = await bcrypt.hash(newPassword, 10);
+
+    // Staff मा खोज्ने, नभए User
     const staff = await prisma.staff.findUnique({ where: { email } });
-    if (!staff) {
-      return NextResponse.json({ error: "Staff not found" }, { status: 404 });
+    if (staff) {
+      await prisma.staff.update({ where: { id: staff.id }, data: { password: hash } });
+      return NextResponse.json({ success: true, message: `Password reset for staff ${email}` });
     }
 
-    const hash = await bcrypt.hash(newPassword, 10);
-    await prisma.staff.update({ where: { id: staff.id }, data: { password: hash } });
+    const user = await prisma.user.findFirst({ where: { email } });
+    if (user) {
+      await prisma.user.update({ where: { id: user.id }, data: { password: hash } });
+      return NextResponse.json({ success: true, message: `Password reset for user ${email}` });
+    }
 
-    return NextResponse.json({ success: true, message: `Password reset for ${email}` });
+    return NextResponse.json({ error: "Account not found in staff or user" }, { status: 404 });
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }

@@ -3,7 +3,6 @@ import CredentialsProvider from 'next-auth/providers/credentials'
 import { prisma } from './prisma'
 import bcrypt from 'bcryptjs'
 
-// bcrypt hash $2a$ / $2b$ / $2y$ ले सुरु हुन्छ
 function isHashed(pw: string): boolean {
   return /^\$2[aby]\$/.test(pw)
 }
@@ -18,24 +17,30 @@ export const authOptions: NextAuthOptions = {
       },
       async authorize(credentials) {
         if (!credentials?.email || !credentials?.password) return null
-        const staff = await prisma.staff.findUnique({ where: { email: credentials.email } })
-        if (!staff || !staff.password) return null
 
+        // Staff table मा खोज्ने, नभए User table
+        const staff = await prisma.staff.findUnique({ where: { email: credentials.email } })
+        const account = staff || await prisma.user.findFirst({ where: { email: credentials.email } })
+        if (!account || !account.password) return null
+
+        const isStaff = !!staff
         let ok = false
-        if (isHashed(staff.password)) {
-          // hashed — bcrypt compare
-          ok = await bcrypt.compare(credentials.password, staff.password)
+        if (isHashed(account.password)) {
+          ok = await bcrypt.compare(credentials.password, account.password)
         } else {
-          // legacy plain-text — direct compare, then auto-upgrade to hash
-          ok = staff.password === credentials.password
+          ok = account.password === credentials.password
           if (ok) {
             const newHash = await bcrypt.hash(credentials.password, 10)
-            await prisma.staff.update({ where: { id: staff.id }, data: { password: newHash } })
+            if (isStaff) {
+              await prisma.staff.update({ where: { id: account.id }, data: { password: newHash } })
+            } else {
+              await prisma.user.update({ where: { id: account.id }, data: { password: newHash } })
+            }
           }
         }
 
         if (!ok) return null
-        return { id: staff.id, email: staff.email, name: staff.name, role: staff.role }
+        return { id: account.id, email: account.email, name: account.name, role: account.role }
       }
     })
   ],

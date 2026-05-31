@@ -16,30 +16,36 @@ export async function POST(req: NextRequest) {
 
     const { currentPassword, newPassword } = await req.json();
     if (!currentPassword || !newPassword) {
-      return NextResponse.json({ error: "Current र new password दुवै चाहिन्छ" }, { status: 400 });
+      return NextResponse.json({ error: "Current and new password both required" }, { status: 400 });
     }
     if (newPassword.length < 6) {
-      return NextResponse.json({ error: "New password कम्तीमा 6 characters हुनुपर्छ" }, { status: 400 });
+      return NextResponse.json({ error: "New password must be at least 6 characters" }, { status: 400 });
     }
 
+    // Staff मा खोज्ने, नभए User
     const staff = await prisma.staff.findUnique({ where: { email } });
-    if (!staff || !staff.password) {
-      return NextResponse.json({ error: "Account भेटिएन" }, { status: 404 });
+    const account = staff || await prisma.user.findFirst({ where: { email } });
+    if (!account || !account.password) {
+      return NextResponse.json({ error: "Account not found" }, { status: 404 });
     }
+    const isStaff = !!staff;
 
-    // current password verify (hashed वा legacy)
     let ok = false;
-    if (isHashed(staff.password)) {
-      ok = await bcrypt.compare(currentPassword, staff.password);
+    if (isHashed(account.password)) {
+      ok = await bcrypt.compare(currentPassword, account.password);
     } else {
-      ok = staff.password === currentPassword;
+      ok = account.password === currentPassword;
     }
     if (!ok) {
-      return NextResponse.json({ error: "Current password गलत छ" }, { status: 403 });
+      return NextResponse.json({ error: "Current password is incorrect" }, { status: 403 });
     }
 
     const newHash = await bcrypt.hash(newPassword, 10);
-    await prisma.staff.update({ where: { id: staff.id }, data: { password: newHash } });
+    if (isStaff) {
+      await prisma.staff.update({ where: { id: account.id }, data: { password: newHash } });
+    } else {
+      await prisma.user.update({ where: { id: account.id }, data: { password: newHash } });
+    }
 
     return NextResponse.json({ success: true });
   } catch (err) {
