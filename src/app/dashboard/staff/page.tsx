@@ -58,7 +58,7 @@ export default function StaffPage() {
   const user = session?.user as any
   const role = user?.role || 'staff'
   const subscriptionId = user?.subscriptionId || null
-  const isAdmin = role === 'admin'
+  const isAdmin = role === 'ADMIN' || role === 'admin'
   const isSubAdmin = role === 'subscriber_admin'
 
   const [staff, setStaff] = useState<Staff[]>([])
