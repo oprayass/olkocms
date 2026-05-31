@@ -119,6 +119,24 @@ export default function DarazOrdersPage() {
     setFetching(false);
   };
 
+  const handleRefreshStatus = async () => {
+    setFetching(true);
+    setMessage("Refreshing order statuses from Daraz (last 7 days)...");
+    try {
+      const res = await fetch("/api/daraz/refresh-status", { method: "POST" });
+      const data = await res.json();
+      if (data.success) {
+        setMessage(`Status refreshed! ${data.updated} orders updated.`);
+        await loadData();
+      } else {
+        setMessage("Refresh failed: " + (data.error || "unknown"));
+      }
+    } catch {
+      setMessage("Refresh failed");
+    }
+    setFetching(false);
+  };
+
   const storeName = (id: string | null) => {
     return resolveStoreName(id);
   };
@@ -175,6 +193,7 @@ export default function DarazOrdersPage() {
           <RefreshCw className={`w-4 h-4 ${fetching ? "animate-spin" : ""}`} />
           {fetching ? "Fetching..." : "Fetch Latest Orders"}
         </button>
+        <button onClick={handleRefreshStatus} disabled={fetching} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Refresh Status</button>
       </div>
 
       {message && (
