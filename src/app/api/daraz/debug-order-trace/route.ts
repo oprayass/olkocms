@@ -4,7 +4,7 @@ import crypto from "crypto";
 export const dynamic = "force-dynamic";
 
 function buildDarazRequest(apiPath: string, params: Record<string, string>, appKey: string, appSecret: string) {
-  const timestamp = new Date().toISOString().replace(/\.\d{3}Z$/, "+00:00");
+  const timestamp = Date.now().toString();
   const allParams: Record<string, string> = {
     app_key: appKey,
     sign_method: "sha256",
