@@ -10,29 +10,42 @@ function signRequest(apiPath: string, params: Record<string, string>, appSecret:
   return crypto.createHmac("sha256", appSecret).update(apiPath + concat, "utf8").digest("hex").toUpperCase();
 }
 
-// Daraz date "2026-05-15 16:59:26 +0800" -> Date
-function parseDarazDate(s: string): Date | null {
-  if (!s) return null;
-  const d = new Date(s.replace(" ", "T").replace(" ", ""));
-  return isNaN(d.getTime()) ? null : d;
-}
-
 const DELIVERED_STATUSES = ["delivered", "shipped"];
+
+// Walk the trace response and return the epoch-ms event_time of the "Delivered" stage
+function extractDeliveredTime(data: any): number | null {
+  const packages = data?.result?.data || [];
+  for (const pkg of packages) {
+    const list = pkg?.package_detail_info_list || [];
+    for (const p of list) {
+      const events = p?.logistic_detail_info_list || [];
+      for (const ev of events) {
+        const isDelivered =
+          ev?.detail_type === "delivered" ||
+          ev?.status_code === "1400" ||
+          ev?.title === "Delivered";
+        if (isDelivered && ev?.event_time) {
+          const t = Number(ev.event_time);
+          if (!isNaN(t) && t > 0) return t;
+        }
+      }
+    }
+  }
+  return null;
+}
 
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const offset = body.offset || 0;
-    const limit = 12; // Vercel 10s — सानो batch
-
+    const limit = 12; // Vercel 10s timeout - small batch
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
 
-    // delivered status भएका तर deliveredAt नभरिएका orders
+    // ALL delivered orders (re-fill even if deliveredAt already set, to fix old wrong values)
     const orders = await prisma.darazOrder.findMany({
       where: {
         status: { in: DELIVERED_STATUSES },
-        deliveredAt: null,
       },
       select: { darazOrderId: true, storeId: true },
       take: limit,
@@ -45,9 +58,8 @@ export async function POST(req: NextRequest) {
     for (const s of stores) storeMap[s.id] = s;
 
     let filled = 0;
-
     for (const ord of orders) {
-      // order को store पहिले try, नभए सबै store
+      // try order's own store first, then all stores
       const tryStores = ord.storeId && storeMap[ord.storeId] ? [storeMap[ord.storeId], ...stores] : stores;
       for (const store of tryStores) {
         try {
@@ -59,27 +71,29 @@ export async function POST(req: NextRequest) {
             sign_method: "sha256",
             timestamp,
           };
-          const sign = signRequest("/order/items/get", params, appSecret);
+          const apiPath = "/logistic/order/trace";
+          const sign = signRequest(apiPath, params, appSecret);
           const sortedKeys = Object.keys(params).sort();
           const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
-          const url = `https://api.daraz.com.np/rest/order/items/get?${query}`;
+          const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
+
           const res = await fetch(url, { method: "GET" });
           const data = await res.json();
-          const items = data?.data || [];
-          if (items.length === 0) continue;
 
-          // delivered item को updated_at खोज्ने
-          const deliveredItem = items.find((it: any) => DELIVERED_STATUSES.includes(it.status));
-          const target = deliveredItem || items[0];
-          const dt = parseDarazDate(target.updated_at);
-          if (dt) {
+          // skip stores that can't see this order (wrong store / no permission)
+          if (data?.code && data.code !== "0") continue;
+
+          const deliveredMs = extractDeliveredTime(data);
+          if (deliveredMs) {
             await prisma.darazOrder.update({
               where: { darazOrderId: ord.darazOrderId },
-              data: { deliveredAt: dt },
+              data: { deliveredAt: new Date(deliveredMs) },
             });
             filled++;
+            break; // done with this order
           }
-          break; // यो order भयो, अर्को order
+          // valid response but no delivered stage yet - stop trying other stores
+          break;
         } catch { /* next store */ }
       }
     }
