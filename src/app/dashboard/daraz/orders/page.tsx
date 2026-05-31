@@ -137,6 +137,35 @@ export default function DarazOrdersPage() {
     setFetching(false);
   };
 
+  const fillDeliveredDates = async () => {
+    setFetching(true);
+    let offset = 0;
+    let totalFilled = 0;
+    let done = false;
+    while (!done) {
+      setMessage(`Filling delivered dates... (${totalFilled} done)`);
+      try {
+        const res = await fetch("/api/daraz/fill-delivered-dates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ offset }),
+        });
+        const data = await res.json();
+        if (!data.success) { setMessage("Fill failed: " + (data.error || "unknown")); break; }
+        totalFilled += data.filled || 0;
+        done = data.done;
+        offset = data.nextOffset || offset + 12;
+        if (offset > 2000) done = true;
+      } catch {
+        setMessage("Fill failed (network)");
+        break;
+      }
+    }
+    setMessage(`Delivered dates filled! ${totalFilled} orders updated.`);
+    await loadData();
+    setFetching(false);
+  };
+
   const storeName = (id: string | null) => {
     return resolveStoreName(id);
   };
@@ -194,6 +223,7 @@ export default function DarazOrdersPage() {
           {fetching ? "Fetching..." : "Fetch Latest Orders"}
         </button>
         <button onClick={handleRefreshStatus} disabled={fetching} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Refresh Status</button>
+        <button onClick={fillDeliveredDates} disabled={fetching} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Fill Delivered Dates</button>
       </div>
 
       {message && (

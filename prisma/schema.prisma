@@ -183,6 +183,7 @@ model DarazOrder {
   paymentStatus String?
   storeId       String?
   orderDate     DateTime?
+  deliveredAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 }
