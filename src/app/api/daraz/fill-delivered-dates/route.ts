@@ -84,6 +84,9 @@ export async function POST(req: NextRequest) {
           // skip stores that can't see this order (wrong store / no permission)
           if (data?.code && data.code !== "0") { diag.push({ o: ord.darazOrderId, store: store.email, code: data.code }); continue; }
 
+          // does THIS store actually have the package trace? (empty = wrong store)
+          const stageCount = (data?.result?.data || []).reduce((n: number, pkg: any) => n + (pkg?.package_detail_info_list || []).reduce((m: number, p: any) => m + (p?.logistic_detail_info_list || []).length, 0), 0);
+          if (stageCount === 0) continue; // wrong store, try next
           const deliveredMs = extractDeliveredTime(data);
           if (deliveredMs) {
             await prisma.darazOrder.update({
@@ -91,10 +94,9 @@ export async function POST(req: NextRequest) {
               data: { deliveredAt: new Date(deliveredMs) },
             });
             filled++;
-            break; // done with this order
           }
-          diag.push({ o: ord.darazOrderId, store: store.email, code: data?.code, hasResult: !!data?.result, delivered: deliveredMs });
-          break;
+          diag.push({ o: ord.darazOrderId, store: store.email, stages: stageCount, delivered: deliveredMs });
+          break; // correct store found (delivered or not yet) - done with this order
         } catch { /* next store */ }
       }
     }
