@@ -34,34 +34,49 @@ function extractDeliveredTime(data: any): number | null {
   return null;
 }
 
+// Count total logistic stages in a trace response (0 = wrong store / no package)
+function countStages(data: any): number {
+  return (data?.result?.data || []).reduce(
+    (n: number, pkg: any) =>
+      n +
+      (pkg?.package_detail_info_list || []).reduce(
+        (m: number, p: any) => m + (p?.logistic_detail_info_list || []).length,
+        0
+      ),
+    0
+  );
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
     const offset = body.offset || 0;
     const limit = 12; // Vercel 10s timeout - small batch
+
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
 
     // ALL delivered orders (re-fill even if deliveredAt already set, to fix old wrong values)
     const orders = await prisma.darazOrder.findMany({
-      where: {
-        status: { in: DELIVERED_STATUSES },
-      },
+      where: { status: { in: DELIVERED_STATUSES } },
       select: { darazOrderId: true, storeId: true },
       take: limit,
       skip: offset,
       orderBy: { createdAt: "desc" },
     });
 
-    const stores = await prisma.darazStore.findMany({ where: { isActive: true, accessToken: { not: null } } });
+    const stores = await prisma.darazStore.findMany({
+      where: { isActive: true, accessToken: { not: null } },
+    });
     const storeMap: Record<string, any> = {};
     for (const s of stores) storeMap[s.id] = s;
 
     let filled = 0;
-    const diag: any[] = [];
+
     for (const ord of orders) {
       // try order's own store first, then all stores
-      const tryStores = ord.storeId && storeMap[ord.storeId] ? [storeMap[ord.storeId], ...stores] : stores;
+      const tryStores =
+        ord.storeId && storeMap[ord.storeId] ? [storeMap[ord.storeId], ...stores] : stores;
       for (const store of tryStores) {
         try {
           const timestamp = Date.now().toString();
@@ -75,18 +90,17 @@ export async function POST(req: NextRequest) {
           const apiPath = "/logistic/order/trace";
           const sign = signRequest(apiPath, params, appSecret);
           const sortedKeys = Object.keys(params).sort();
-          const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
+          const query =
+            sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") +
+            `&sign=${sign}`;
           const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
 
           const res = await fetch(url, { method: "GET" });
           const data = await res.json();
 
-          // skip stores that can't see this order (wrong store / no permission)
-          if (data?.code && data.code !== "0") { diag.push({ o: ord.darazOrderId, store: store.email, code: data.code }); continue; }
-
           // does THIS store actually have the package trace? (empty = wrong store)
-          const stageCount = (data?.result?.data || []).reduce((n: number, pkg: any) => n + (pkg?.package_detail_info_list || []).reduce((m: number, p: any) => m + (p?.logistic_detail_info_list || []).length, 0), 0);
-          if (stageCount === 0) { if (ord === orders[0]) diag.push({ probe: store.id, tokenLen: (store.accessToken||'').length, code: data?.code, stages: stageCount }); continue; }
+          if (countStages(data) === 0) continue;
+
           const deliveredMs = extractDeliveredTime(data);
           if (deliveredMs) {
             await prisma.darazOrder.update({
@@ -95,7 +109,6 @@ export async function POST(req: NextRequest) {
             });
             filled++;
           }
-          diag.push({ o: ord.darazOrderId, store: store.email, stages: stageCount, delivered: deliveredMs });
           break; // correct store found (delivered or not yet) - done with this order
         } catch { /* next store */ }
       }
@@ -105,9 +118,6 @@ export async function POST(req: NextRequest) {
       success: true,
       processed: orders.length,
       filled,
-      storeCount: stores.length,
-      storeEmails: stores.map((s: any) => s.email),
-      diag,
       nextOffset: offset + limit,
       done: orders.length < limit,
     });
