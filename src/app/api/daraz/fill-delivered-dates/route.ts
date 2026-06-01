@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
 
           // does THIS store actually have the package trace? (empty = wrong store)
           const stageCount = (data?.result?.data || []).reduce((n: number, pkg: any) => n + (pkg?.package_detail_info_list || []).reduce((m: number, p: any) => m + (p?.logistic_detail_info_list || []).length, 0), 0);
-          if (stageCount === 0) continue; // wrong store, try next
+          if (stageCount === 0) { if (ord === orders[0]) diag.push({ probe: store.id, tokenLen: (store.accessToken||'').length, code: data?.code, stages: stageCount }); continue; }
           const deliveredMs = extractDeliveredTime(data);
           if (deliveredMs) {
             await prisma.darazOrder.update({
