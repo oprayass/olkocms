@@ -340,7 +340,7 @@ export default function DarazOrdersPage() {
                       </span>
                     </td>
                     <td className="px-4 py-3 text-gray-400 text-xs">{storeName(o.storeId)}</td>
-                    <td className="px-4 py-3 text-gray-500 text-xs">{new Date(o.orderDate || o.createdAt).toLocaleDateString()}</td>
+                    <td className="px-4 py-3 text-gray-500 text-xs">{new Date((o.status === "delivered" && o.deliveredAt) ? o.deliveredAt : (o.orderDate || o.createdAt)).toLocaleDateString()}</td>
                   </tr>
                 ))}
               </tbody>
