@@ -3,59 +3,72 @@ import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import crypto from "crypto";
 
-function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
-  const sortedKeys = Object.keys(params).sort();
-  let concat = "";
-  for (const k of sortedKeys) concat += k + params[k];
-  return crypto.createHmac("sha256", appSecret).update(apiPath + concat, "utf8").digest("hex").toUpperCase();
+const ORDERS = ["215593960436740", "215524547256631"];
+
+function sign(apiPath: string, params: Record<string, string>, secret: string): string {
+  const keys = Object.keys(params).sort();
+  let c = "";
+  for (const k of keys) c += k + params[k];
+  return crypto.createHmac("sha256", secret).update(apiPath + c, "utf8").digest("hex").toUpperCase();
 }
 
-export async function GET(req: Request) {
+function buildUrl(apiPath: string, params: Record<string, string>, secret: string): string {
+  const s = sign(apiPath, params, secret);
+  const keys = Object.keys(params).sort();
+  const q = keys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${s}`;
+  return `https://api.daraz.com.np/rest${apiPath}?${q}`;
+}
+
+export async function GET() {
   try {
-    const { searchParams } = new URL(req.url);
-    const pages = parseInt(searchParams.get("pages") || "5");
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
-    const store = await prisma.darazStore.findFirst({
+    const stores = await prisma.darazStore.findMany({
       where: { isActive: true, accessToken: { not: null } },
     });
-    if (!store) return NextResponse.json({ error: "no store" });
 
-    const apiPath = "/reverse/getreverseordersforseller";
-    const typeCount: Record<string, number> = {};
-    const shippingCount: Record<string, number> = {};
-    let totalReported = 0;
-    let scanned = 0;
-    const samples: any[] = [];
-
-    for (let p = 1; p <= pages; p++) {
-      const params: Record<string, string> = {
-        access_token: store.accessToken!,
-        app_key: appKey,
-        sign_method: "sha256",
-        timestamp: Date.now().toString(),
-        page_size: "50",
-        page_no: String(p),
-      };
-      const sign = signRequest(apiPath, params, appSecret);
-      const sortedKeys = Object.keys(params).sort();
-      const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
-      const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
-      const res = await fetch(url, { method: "POST" });
-      const data = await res.json();
-      const items = data?.result?.items || [];
-      totalReported = data?.result?.total || totalReported;
-      for (const it of items) {
-        scanned++;
-        const rt = it.request_type || "UNKNOWN";
-        typeCount[rt] = (typeCount[rt] || 0) + 1;
-        const st = it.shipping_type || "none";
-        shippingCount[st] = (shippingCount[st] || 0) + 1;
-        if (rt === "RETURN" && samples.length < 5) samples.push(it);
+    const out: any[] = [];
+    for (const orderId of ORDERS) {
+      let found: any = { orderId, reverseOrders: [] };
+      for (const store of stores) {
+        // LIST by trade_order_id
+        const listParams: Record<string, string> = {
+          access_token: store.accessToken!, app_key: appKey, sign_method: "sha256",
+          timestamp: Date.now().toString(), page_size: "10", page_no: "1", trade_order_id: orderId,
+        };
+        const listData = await (await fetch(buildUrl("/reverse/getreverseordersforseller", listParams, appSecret), { method: "POST" })).json();
+        const items = listData?.result?.items || [];
+        if (listData?.code === "0" && items.length > 0) {
+          found.store = store.storeName;
+          for (const ro of items) {
+            // DETAIL by reverse_order_id
+            const detParams: Record<string, string> = {
+              access_token: store.accessToken!, app_key: appKey, sign_method: "sha256",
+              timestamp: Date.now().toString(), reverse_order_id: String(ro.reverse_order_id),
+            };
+            const detData = await (await fetch(buildUrl("/order/reverse/return/detail/list", detParams, appSecret), { method: "GET" })).json();
+            const lines = detData?.data?.reverseOrderLineDTOList || [];
+            found.reverseOrders.push({
+              reverse_order_id: ro.reverse_order_id,
+              request_type: ro.request_type,
+              shipping_type: ro.shipping_type,
+              lines: lines.map((l: any) => ({
+                tracking_number: l.tracking_number,
+                ofc_status: l.ofc_status,
+                reverse_status: l.reverse_status,
+                whqc_decision: l.whqc_decision,
+                reason_text: l.reason_text,
+                trade_order_line_id: l.trade_order_line_id,
+              })),
+            });
+          }
+          break;
+        }
       }
+      out.push(found);
     }
 
-    return NextResponse.json({ store: store.storeName, totalReported, scanned, typeCount, shippingCount, returnSamples: samples });
+    return NextResponse.json({ results: out });
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 300) }, { status: 500 });
   }
