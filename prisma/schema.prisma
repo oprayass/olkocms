@@ -188,6 +188,35 @@ model DarazOrder {
   updatedAt     DateTime @updatedAt
 }
 
+model DarazOrderItem {
+  id            String   @id @default(cuid())
+  orderItemId   String   @unique
+  darazOrderId  String
+  itemName      String?
+  sku           String?
+  status        String?
+  price         Float?
+  storeId       String?
+  trackingNo    String?
+  shipmentProvider      String?
+  cancelReturnInitiator String?
+  deliveredAt   DateTime?
+  returnTrackingNo   String?
+  reverseOrderId     String?
+  reverseOrderLineId String?
+  ofcStatus     String?
+  reverseStatus String?
+  whqcDecision  String?
+  returnReason  String?
+  refundAmount  Float?
+  requestType   String?
+  shippingType  String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  @@index([trackingNo])
+  @@index([returnTrackingNo])
+  @@index([darazOrderId])
+}
 model ActivityLog {
   id          String   @id @default(cuid())
   action      String
