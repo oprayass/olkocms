@@ -38,8 +38,8 @@ export async function GET(req: Request) {
         const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
         const res = await fetch(url, { method: "GET" });
         const data = await res.json();
-        const hasData = data?.code === "0" && data?.result;
-        out.push({ store: store.storeName, code: data?.code, message: data?.message, raw: hasData ? data : undefined });
+        
+        out.push({ store: store.storeName, code: data?.code, raw: data });
       } catch (e) {
         out.push({ store: store.storeName, error: String(e).substring(0, 150) });
       }
