@@ -13,7 +13,7 @@ function sign(apiPath: string, params: Record<string, string>, secret: string): 
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
-    const field = searchParams.get("field") || "ReverseOrderLineCreatedTimeRange";
+    const field = searchParams.get("field") || "TradeOrderLineCreatedTimeRange";
     const startMs = searchParams.get("start") || String(new Date("2025-01-01").getTime());
     const endMs = searchParams.get("end") || String(new Date("2025-03-01").getTime());
 
