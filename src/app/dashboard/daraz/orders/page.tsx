@@ -176,7 +176,8 @@ export default function DarazOrdersPage() {
       o.customerName.toLowerCase().includes(search.toLowerCase()) ||
       o.darazOrderId.includes(search);
     const matchStore = storeFilter === "all" || o.storeId === storeFilter;
-    const matchStatus = statusFilter === "all" || o.status === statusFilter;
+    const TO_SHIP = ["pending", "ready_to_ship", "packed"];
+    const matchStatus = statusFilter === "all" || (statusFilter === "to_ship" ? TO_SHIP.includes(o.status) : o.status === statusFilter);
 
     let matchDate = true;
     // delivered filter मा deliveredAt ले छान्ने, अन्यथा orderDate
@@ -269,6 +270,7 @@ export default function DarazOrdersPage() {
         <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}
           className="bg-gray-900 border border-gray-800 rounded-lg px-4 py-2 text-white text-sm">
           <option value="all">All Status</option>
+          <option value="to_ship">To Ship</option>
           {statuses.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
         <select value={period} onChange={(e) => setPeriod(e.target.value)}
