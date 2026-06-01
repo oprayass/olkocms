@@ -18,7 +18,9 @@ export async function GET(req: Request) {
       match = await prisma.darazOrderItem.findMany({ where: { darazOrderId: orderId } });
     }
 
-    return NextResponse.json({ totalItems, withTracking, query: tracking || orderId || null, match });
+    const nullTracking = await prisma.darazOrderItem.groupBy({ by: ["status"], where: { trackingNo: null }, _count: { _all: true } });
+    const withTrackingByStatus = await prisma.darazOrderItem.groupBy({ by: ["status"], where: { trackingNo: { not: null } }, _count: { _all: true } });
+    return NextResponse.json({ totalItems, withTracking, nullTrackingByStatus: nullTracking, withTrackingByStatus, query: tracking || orderId || null, match });
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 300) }, { status: 500 });
   }
