@@ -105,6 +105,8 @@ export async function POST(req: NextRequest) {
       success: true,
       processed: orders.length,
       filled,
+      storeCount: stores.length,
+      storeEmails: stores.map((s: any) => s.email),
       diag,
       nextOffset: offset + limit,
       done: orders.length < limit,
