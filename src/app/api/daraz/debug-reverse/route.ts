@@ -25,7 +25,7 @@ export async function GET(req: Request) {
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
     const store = await prisma.darazStore.findFirst({
-      where: { isActive: true, accessToken: { not: null }, storeName: "Yagya Premiums" },
+      where: { isActive: true, accessToken: { not: null } },
     });
     if (!store) return NextResponse.json({ error: "Yagya store not found" });
 
