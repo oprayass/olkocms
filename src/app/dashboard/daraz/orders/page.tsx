@@ -81,6 +81,8 @@ export default function DarazOrdersPage() {
   const [customTo, setCustomTo] = useState("");
   const [storeSort, setStoreSort] = useState(false);
   const [message, setMessage] = useState("");
+  const [syncProgress, setSyncProgress] = useState(0);
+  const [syncStep, setSyncStep] = useState("");
   const [popupOrder, setPopupOrder] = useState<{ orderId: string; storeId: string | null } | null>(null);
 
   const loadData = async () => {
@@ -167,6 +169,89 @@ export default function DarazOrdersPage() {
     setFetching(false);
   };
 
+  const handleSync = async () => {
+    setFetching(true);
+    setSyncProgress(2);
+
+    // Step A: Fetch Latest Orders (band 0-25)
+    setSyncStep("Step 1/4: Fetching latest orders from Daraz...");
+    try {
+      const res = await fetch("/api/daraz/orders/fetch");
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "fetch failed");
+    } catch (e: any) {
+      setSyncStep("Fetch failed: " + (e?.message || "error"));
+      setFetching(false);
+      return;
+    }
+    setSyncProgress(25);
+
+    // Step B: Refresh Status (band 25-50)
+    setSyncStep("Step 2/4: Refreshing order statuses...");
+    try {
+      const res = await fetch("/api/daraz/refresh-status", { method: "POST" });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || "refresh failed");
+    } catch (e: any) {
+      setSyncStep("Refresh failed: " + (e?.message || "error"));
+      setFetching(false);
+      return;
+    }
+    setSyncProgress(50);
+
+    // Step C: Fill Delivered Dates (band 50-75, auto-paginate)
+    setSyncStep("Step 3/4: Filling delivered dates...");
+    {
+      let offset = 0;
+      let done = false;
+      let guard = 0;
+      while (!done && guard < 300) {
+        guard++;
+        try {
+          const res = await fetch("/api/daraz/fill-delivered-dates", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ offset }),
+          });
+          const data = await res.json();
+          if (!data.success) break;
+          done = data.done;
+          offset = data.nextOffset || offset + 12;
+          const pct = 50 + Math.min(24, Math.floor(offset / 50));
+          setSyncProgress(pct);
+        } catch { break; }
+      }
+    }
+    setSyncProgress(75);
+
+    // Step D: Reconcile + Alerts (band 75-100, auto-paginate)
+    setSyncStep("Step 4/4: Reconciling scans and alerts...");
+    {
+      let offset = 0;
+      let guard = 0;
+      while (guard < 300) {
+        guard++;
+        try {
+          const res = await fetch("/api/daraz/reconcile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ offset }),
+          });
+          const data = await res.json();
+          const next = data?.nextOffset;
+          const pct = 75 + Math.min(24, Math.floor(offset / 200));
+          setSyncProgress(pct);
+          if (next === null || next === undefined) break;
+          offset = next;
+        } catch { break; }
+      }
+    }
+    setSyncProgress(100);
+    setSyncStep("Sync complete!");
+    await loadData();
+    setFetching(false);
+    setTimeout(() => { setSyncProgress(0); setSyncStep(""); }, 4000);
+  };
   const storeName = (id: string | null) => {
     return resolveStoreName(id);
   };
@@ -219,16 +304,28 @@ export default function DarazOrdersPage() {
           </div>
         </div>
         <button
-          onClick={handleFetch}
+          onClick={handleSync}
           disabled={fetching}
           className="flex items-center gap-2 bg-orange-600 hover:bg-orange-700 text-white px-4 py-2 rounded-lg disabled:opacity-50"
         >
           <RefreshCw className={`w-4 h-4 ${fetching ? "animate-spin" : ""}`} />
-          {fetching ? "Fetching..." : "Fetch Latest Orders"}
+          {fetching ? "Syncing..." : "Sync Orders"}
         </button>
-        <button onClick={handleRefreshStatus} disabled={fetching} className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Refresh Status</button>
-        <button onClick={fillDeliveredDates} disabled={fetching} className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-lg disabled:opacity-50">Fill Delivered Dates</button>
+        
+        
       </div>
+
+      {fetching && (
+        <div className="mb-4 p-3 bg-gray-800 border border-gray-700 rounded-lg">
+          <div className="flex justify-between text-xs text-gray-300 mb-2">
+            <span>{syncStep}</span>
+            <span>{syncProgress}%</span>
+          </div>
+          <div className="w-full h-2 bg-gray-700 rounded-full overflow-hidden">
+            <div className="h-full bg-orange-500 transition-all duration-300" style={{ width: syncProgress + "%" }} />
+          </div>
+        </div>
+      )}
 
       {message && (
         <div className="mb-4 p-3 bg-gray-800 border border-gray-700 rounded-lg text-sm text-gray-300">
