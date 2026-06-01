@@ -23,11 +23,11 @@ const nav = [
   { label: 'Subscriptions', href: '/dashboard/subscriptions', Icon: CreditCard },
   { label: 'Settings', href: '/dashboard/settings', Icon: Settings },
   { label: 'Change Password', href: '/dashboard/settings/password', Icon: Settings },
-  { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores', Icon: Store },
 ]
 
 const darazLinks = [
   { label: 'Overview', href: '/dashboard/daraz' },
+  { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores' },
   { label: 'Orders', href: '/dashboard/daraz/orders' },
   { label: 'Returns List', href: '/dashboard/daraz/returns-list' },
   { label: 'All To Ship', href: '/dashboard/daraz/to-ship' },
