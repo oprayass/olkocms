@@ -5,8 +5,8 @@
       "schedule": "0 0 * * *"
     },
     {
-      "path": "/api/daraz/orders/fetch",
-      "schedule": "0 1 * * *"
+      "path": "/api/daraz/cron/nightly",
+      "schedule": "15 14 * * *"
     }
   ]
 }
