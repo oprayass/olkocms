@@ -1,226 +1,114 @@
-# OlkoCMS - Daraz Tracking-Match Feature: Research Findings
+# OlkoCMS — Daraz Open Platform API Findings (consolidated)
 
-> Created during the session that researched the Daraz Reverse Order API to build the
-> central-DB tracking-match feature. This file is the single source of truth for the
-> forward + reverse order/return data model. Read this before building schema or match logic.
+Everything learned about the Daraz/Lazada Open Platform API across all chats: signature, forward order endpoints, the true delivered-date source, reverse/return endpoints, the page-100 cap and its fix, return classification, the `DarazOrderItem` central table, fetch routes, and verified data. The scan/claim workflow and the tracking-match feature plan are in DARAZ_SCANS_CLAIMS.
 
-## GOAL (recap)
-Staff scan ONLY a tracking number (outbound or return). The system must auto-pull all
-other data (order id, customer, product, store, status, return type) from Daraz and match
-locally. Daraz has NO "find order by tracking" endpoint, so we fetch orders/returns (which
-contain tracking) and match locally by tracking number.
+> Supersedes the older split notes. Where an early chat and a later chat disagree, the LATER finding wins and is marked.
 
-## KEY BUSINESS RULES (confirmed by user)
-- One Daraz order_id can contain MULTIPLE items; each item can have a DIFFERENT status
-  (pending / shipping / shipped / delivered / return-process / returned / cancelled-at-door /
-  seller-cancel / system-cancel) and potentially a DIFFERENT tracking.
-- One tracking_code can cover MULTIPLE items (bundle): if the seller packs several items of
-  the same order into one package, they share ONE outbound tracking. So tracking is NOT unique.
-- A returned item gets a SEPARATE return (reverse) tracking number, different from the outbound
-  one. Outbound tracking != return tracking. order_id stays the same across both.
-- Outbound scan = forward tracking. Inbound (return) scan = return tracking.
-- OlkoCMS inbound includes BOTH "failed delivery" returns AND "customer" returns. Staff scan
-  one tracking number; the system must auto-detect: delivery vs return, and which return type.
-- "Scrap" returns do NOT physically come back to the store, so they are never inbound-scanned.
+## Accounts / basics
+- App key **`505290`**; `DARAZ_APP_SECRET` set in Vercel and **MUST be `.trim()`ed** before signing (trailing whitespace caused ~15 IncompleteSignature failures). NP base `https://api.daraz.com.np/rest{apiPath}?{query}`.
+- Seller ID `900155829345`. **9 connected stores** (store cuids in DARAZ_SCANS_CLAIMS). `DarazStore.storeName` holds the store's EMAIL, not a display name — don't filter by display name; loop all active stores.
+- API Explorer at App Console → Manage app 505290 → API Explorer. Permission groups (Order Mgmt, Reverse Order Mgmt, etc.) all Active. Call limit 6,000,000/day. "Get Token" popup is often blocked → prefer debug routes over Explorer.
+- OAuth: `/api/daraz/auth` (redirect, `force_auth=true`), `/api/daraz/callback` (token exchange). `/auth/token/refresh` params `app_key, refresh_token, sign_method, timestamp` → new `access_token, refresh_token, expires_in`. `/api/daraz/token/refresh` refreshes tokens expiring within 7 days.
 
-## ID TYPES (critical - do not confuse)
-- order_id  (a.k.a. trade_order_id)        e.g. 215639386580372 / 207558548878945  - the purchase order
-- order_item_id (a.k.a. trade_order_line_id) e.g. 207558548978945                  - one item line in a forward order
-- reverse_order_id                          e.g. 502443085678945                    - a return/cancel request (unique)
-- reverse_order_line_id (= Return Item ID)  e.g. 502443085778945                    - one item line in a return
-NOTE: Return IDs are NOT order IDs. Passing a return id to /order/items/get fails (code 16).
+## Signature (verified, all calls)
+- HMAC-SHA256, key = `DARAZ_APP_SECRET.trim()`. Build string = `apiPath` + concat of (sortedKey + value) for every param (no separators). Output **hex UPPERCASE**.
+- Query = params sorted by key, each `k=encodeURIComponent(v)`, joined `&`, then `&sign=<SIGN>` appended **last**.
+- **Timestamp = epoch milliseconds** (`Date.now().toString()`). ISO `+00:00` works on some endpoints but FAILS on `/logistic/order/trace` (`IllegalTimestamp`) — use epoch ms everywhere.
+- Routes reading `request.url` need `export const dynamic = "force-dynamic"`.
 
----
+## ID types (don't mix)
+`order_id` (= `trade_order_id`) ≠ `reverse_order_id` ≠ `order_item_id` (= `trade_order_line_id`) ≠ `reverse_order_line_id`. `order_item_id == trade_order_line_id` is the 1:1 link between a forward item and its reverse line. Passing a reverse id to `/order/items/get` fails with `code:"16"`.
 
-## ENDPOINT 1 (FORWARD) - /order/items/get  [GET]
-Param: order_id. Returns data[] = array of items.
-Correct store detection: code === "0" AND data.length > 0. A WRONG store returns code === "16".
-Per-item fields we use:
-- tracking_code        outbound tracking (e.g. DEXNP025640432)
-- order_id, order_item_id
-- status               item-level, lowercase (e.g. "delivered")
-- name                 product name
-- paid_price, item_price
-- shipment_provider    e.g. "Drop-off: NP-DEX, Delivery: NP-DEX"
-- cancel_return_initiator   "null-null" when not cancelled/returned; otherwise values like
-                            cancellation-customer / cancellation-seller / cancellation-failed Delivery /
-                            return-customer / cancellation-internal / refund-internal
-- return_status
-Verified delivered: order 215639386580372 -> item tracking DEXNP025640432, status "delivered",
-store Yagya Premiums.
+## FORWARD endpoints
 
----
+### `/orders/get` — order list (NO tracking)
+- Params: `access_token, app_key, sign_method:"sha256", timestamp, limit, offset, sort_by, sort_direction, status?` and **`created_after` OR `update_after` is mandatory** (else `E018`).
+  - `created_after` (ISO) filters by creation — MISSES status changes on old orders.
+  - `update_after` (ISO) filters by last-update — CATCHES status changes (pending→delivered). Use `sort_by:"updated_at"`.
+- Response `data.orders[]`, `data.count/countTotal`, top-level `code:"0"`. Order fields: `order_id, order_number, statuses[0], price, items_count, created_at` (`"2026-05-19 02:34:39 +0800"`), `updated_at, payment_method, shipping_fee, warehouse_code(="dropshipping")`, `address_billing.{first_name,last_name,phone,city,...}`. Customer = billing first+last (fallback `customer_first_name`, else N/A). **Order-level only — no tracking number here.**
 
-## ENDPOINT 2 (REVERSE LIST) - /reverse/getreverseordersforseller  [POST]
-Signature: ALL params (system + business: page_size, page_no, etc.) merged, sorted, signed
-together; business params sent as QUERY params (NOT JSON body). POST with empty body.
-(First attempt with JSON body + body appended to sign string gave IncompleteSignature; the
-merged-query approach works -> code "0".)
-Params: page_size (req), page_no (req), reverse_order_id?, trade_order_id?, ofc_status_list[]?,
-reverse_status_list[]?, return_to_type?, dispute_in_progress?, time-range filters (ms).
-Returns result.items[] with SUMMARY ONLY (NO tracking):
-- reverse_order_id, trade_order_id, request_type ("CANCEL" | "RETURN"), is_rtm, shipping_type
-  ("PICK_UP" | "DROP_OFF", present on RETURN).
-result.total gives total count per store (thousands each).
-Use this to LIST reverse orders (filter by trade_order_id or time range), get reverse_order_id,
-then call ENDPOINT 3 for tracking + status.
+### `/order/items/get` — items + tracking [the only place tracking lives]
+- Params: `order_id` + standard auth. GET. Response `data[]` (array of items), `code:"0"`.
+- Correct store: `code==="0"` AND `data.length>0`; **wrong store returns `code==="16"`** (early note said `E016 Invalid Order ID` — same idea: must use the owning store).
+- Per-item fields: `tracking_code` (outbound courier tracking), `order_id`, `order_item_id`(=trade_order_line_id), `status`(lowercase), `name`, `paid_price`/`item_price`, `shipment_provider` (e.g. "Drop-off: NP-DEX, Delivery: NP-DEX"), `sku`, `shop_sku`, `variation`, `reason` (buyer return reason), `cancel_return_initiator` ("buyer-return"; "null-null" when none), `return_status`, `product_main_image`, `shop_id`, `package_id`, `buyer_id`, `warehouse_code`, `created_at`, `updated_at`, +~60 more.
+- **Item `updated_at` is NOT the true delivered time** — it changes again post-delivery (settlement), so it set `deliveredAt` ~1 day late. Do not use it. (Proven on order 215639386580372.)
+- **QC return reason is NOT exposed**: `reason_detail`/`return_status` are empty even on returned orders. Daraz doesn't surface QC reason via API → keep manual.
+- Date parse: `new Date(s.replace(" ","T").replace(" ",""))` for `"+0800"` strings.
 
----
+### `/logistic/order/trace` — TRUE delivered timestamp [CONFIRMED]
+- GET, business param `order_id` + auth. **Timestamp must be epoch ms.** Available to app 505290, no extra permission.
+- Response: `data.result.data[].package_detail_info_list[].logistic_detail_info_list[]` = delivery stages. Each: `{status_code, detail_type, title, description, event_time(epoch ms), package_location_name, proof_images, receive_time}`.
+- **Delivered stage** = `detail_type==="delivered"` OR `status_code==="1400"` OR `title==="Delivered"`; its `event_time` is the true delivered timestamp (matches Seller Center Order History exactly; NPT = UTC+5:45).
+- Stage sequence seen: `ready_to`(1200) → `shipped`(1210) → ship_info(100013/100102/100103/100014) → out-for-delivery(100018) → `delivered`(1400).
+- **Wrong-store gotcha**: a store that doesn't own the order returns `code:"0"` with an EMPTY `logistic_detail_info_list` (NOT an error). Each order's trace is visible from exactly ONE of the 9 stores → count stages, skip empties, find the owning store.
+- **No endpoint finds an order by tracking number.** Tracking→order must be matched locally after fetching orders/items.
 
-## ENDPOINT 3 (REVERSE DETAIL) - /order/reverse/return/detail/list  [GET]
-THIS IS THE KEY ENDPOINT FOR RETURN TRACKING.
-Method MUST be GET (POST returns UnsupportedHTTPMethod). Path is valid even though API Explorer
-once showed "does not exist" (that was due to empty Region in Explorer).
-Param: reverse_order_id.
-Correct store detection: data.reverseOrderLineDTOList is NON-EMPTY (wrong stores return code "0"
-with reverseOrderLineDTOList: []).
-Response shape: data.{ reverse_order_id, request_type, shipping_type, is_rtm, trade_order_id,
-reverseOrderLineDTOList[] }
-Each reverseOrderLineDTOList[] item:
-- tracking_number          RETURN tracking (e.g. DEXNP009570773) <- staff inbound scan matches THIS
-- reverse_order_line_id    return item id (e.g. 502443085778945)
-- trade_order_line_id      forward order_item_id (links back to forward item, e.g. 207558548978945)
-- ofc_status               logistic status, e.g. "RETURN_RTM_DELIVERED" (= "Returned to seller")
-- reverse_status           e.g. "REFUND_SUCCESS"
-- whqc_decision            warehouse QC, e.g. "return_to_merchant" (vs scrap) - decides if item
-                           physically comes back to store
-- reason_text / reason_code   e.g. "Item is defective or not working" / 10010025
-- refund_amount, item_unit_price   in PAISA (divide by 100 for Rs) e.g. 67600 -> Rs 676
-- seller_sku_id, platform_sku_id, productDTO{product_id, sku}, buyer{user_id}
-- is_need_refund, is_dispute
-- timestamps (epoch SECONDS): return_order_line_gmt_create, return_order_line_gmt_modified,
-  trade_order_gmt_create
-Verified: reverse_order_id 502443085678945 -> tracking_number DEXNP009570773, ofc_status
-RETURN_RTM_DELIVERED, reverse_status REFUND_SUCCESS, whqc_decision return_to_merchant,
-store Yagya Premiums. Matches Seller Center return detail exactly.
+## REVERSE / RETURN endpoints
+> Early chats concluded "no working reverse list endpoint" and used `/orders/get?status=returned|shipped_back|shipped_back_success|failed_delivery`. **LATER (current) finding: the reverse endpoints below DO work** with the right method + params. Both approaches are recorded; prefer the reverse endpoints for return tracking + classification.
 
----
+### `/reverse/getreverseordersforseller` — reverse list (summary, NO tracking) [POST]
+- Biz params merged into the signed param set and sent as **QUERY params** (NOT JSON body — JSON body → IncompleteSignature). Params: `page_size`(req), `page_no`(req), `reverse_order_id?, trade_order_id?, ofc_status_list[]?, reverse_status_list[]?, return_to_type?`, and time filters (below).
+- Response `result.items[]` summary only: `reverse_order_id, trade_order_id, request_type("CANCEL"|"RETURN"), is_rtm, shipping_type("PICK_UP"|"DROP_OFF")`. `result.total`.
+- **PAGE-100 CAP**: returns NOTHING past page 100 (page 101 → total 0), even when total > 5000. Deep/offset pagination is capped.
+- **FIX — time-window filter**: `TradeOrderLineCreatedTimeRangeStart` / `TradeOrderLineCreatedTimeRangeEnd` (epoch ms) DO filter (verified total 11008 → 355 for a 2-month window). Other guessed names (`ReverseOrderLineCreatedTimeRange...`) do NOT filter. Walk **15-day windows from 2019-01-01 → now** (181 windows/store) to stay under the cap. Flag `capRisk = total>5000` (never hit with 15-day windows). Other Explorer params exist: `ReverseOrderLineModifiedTimeRangeStart/End`, `QC_Decision`, `dispute_in_progress`.
 
-## SIGNATURE NOTES
-- HMAC-SHA256, key = DARAZ_APP_SECRET.trim(), hex UPPERCASE.
-- Build string = apiPath + (sortedKey+value concatenated for ALL params except sign).
-- Query = sorted keys, each k=encodeURIComponent(v), joined by &, then &sign=... LAST.
-- For these reverse endpoints we do NOT append a JSON body to the sign string; business params
-  go into the merged param set as query params instead.
+### `/order/reverse/return/detail/list` — reverse detail [GET — KEY for return tracking]
+- **Method MUST be GET** (POST → UnsupportedHTTPMethod). Param `reverse_order_id` + auth. (Early note saw `E0106 ROC internal error` — unreliable then; works now via GET.)
+- Correct store: `data.reverseOrderLineDTOList` non-empty. Each line: `tracking_number` (RETURN tracking), `reverse_order_line_id`, `trade_order_line_id`(=forward order_item_id, the link), `ofc_status`, `reverse_status`, `whqc_decision`, `reason_text/reason_code`, `refund_amount/item_unit_price` (in **PAISA**, /100 = Rs), `seller_sku_id`, `productDTO{product_id,sku}`, timestamps (epoch SECONDS).
 
-## STORE NOTE
-- DarazStore.storeName holds the EMAIL (e.g. yagyapremiums@gmail.com), NOT the display name.
-  Do NOT filter by storeName: "Yagya Premiums" - it won't match. Use storeMap.ts resolveStoreName()
-  for display, or loop all active stores and detect the correct one by non-empty data.
-- 9 active stores; each order/return is visible from exactly ONE store; others return empty.
+### Return classification (verified with 3 real orders) — is it inbound-scannable?
+Decisive field = **`whqc_decision`** (ofc_status agrees):
+- `request_type "CANCEL"` → NO tracking (never shipped, e.g. payment fail). NOT inbound. (We skip CANCEL; only process RETURN.)
+- `RETURN` + `whqc_decision "return_to_merchant"` (ofc `RETURN_RTM_*`) → comes back to OUR store → **INBOUND scan happens**. (order 215524547256631, tracking DEXNP025419650)
+- `RETURN` + `whqc_decision "return_to_customer"` (ofc `RETURN_RTC_*`) → QC sent back to customer → NOT inbound. (order 215593960436740, ofc RETURN_RTC_DELIVERY_FAILED)
+- **FAILED DELIVERY** (customer never received) → NOT in the reverse API at all. Lives in FORWARD `/order/items/get` with status `shipped_back`/`failed_delivery`; `tracking_code` is the SAME outbound tracking → INBOUND scan happens. (order 215468222820925, status shipped_back, tracking DEXNP025635049)
 
-## PROVISIONAL DATA MODEL (decided direction, not yet built)
-Real unit = ITEM (and tracking), not order. Plan: a per-item table (e.g. DarazOrderItem) with
-BOTH outbound and return tracking, because one item can have an outbound tracking AND later a
-return tracking. trackingNo must NOT be @unique (bundle = same outbound tracking on many items).
-order_item_id (trade_order_line_id) is the stable unique key. Suggested fields:
-- orderItemId (@unique), darazOrderId, itemName, sku, status (forward), price, storeId,
-  trackingNo (outbound, indexed, not unique), shipmentProvider, cancelReturnInitiator,
-  deliveredAt?
-- return side: returnTrackingNo (indexed), reverseOrderId, reverseOrderLineId, ofcStatus,
-  reverseStatus, whqcDecision, returnReason, refundAmount, requestType (CANCEL/RETURN),
-  shippingType
-Match logic: outbound scan tracking -> DarazOrderItem.trackingNo; return scan tracking ->
-DarazOrderItem.returnTrackingNo. Auto-detect delivery vs return vs failed-delivery from
-request_type + cancel_return_initiator + ofc_status.
+### Status value vocab
+- Forward `status`: delivered, shipped, pending, ready_to_ship, packed, canceled, returned, failed_delivery, shipped_back, shipped_back_success. (tracking null for canceled/pending = never shipped, correct.)
+- Reverse `ofc_status`: RETURN_RTM_DELIVERED, RETURN_RTC_DELIVERY_FAILED. `reverse_status`: REFUND_SUCCESS, REQUEST_REJECT, CANCEL_SUCCESS, REQUEST_INITIATE. `whqc_decision`: return_to_merchant, return_to_customer (null while in process).
+- Tracking formats: `DEXNP`/`UPANP` + 9 digits; `PND-NP-...`; sometimes plain numeric.
 
-## BUILD ORDER (unchanged from handoff, now unblocked)
-1. Save outbound tracking during fetch (separate paginated pass calling /order/items/get).
-2. Add reverse fetch: list (/reverse/getreverseordersforseller) -> detail
-   (/order/reverse/return/detail/list) -> save return tracking + status to DB.
-3. resolve-scans: match unmatched scans/alerts locally by tracking (outbound + return).
-4. Manual test on known trackings: DEXNP025640432 (outbound), DEXNP009570773 (return).
-5. Nightly cron 8 PM NPT (targeted: only items on Outbound/Inbound/Alerts pages).
-6. Reconcile fix: run after resolve; add deleted:false filter.
+### Business facts
+- One `order_id` can have MULTIPLE items, each with its own status/tracking. One `tracking_code` can cover MULTIPLE items (bundle = same outbound tracking) → **trackingNo is NOT unique**. A returned item gets a SEPARATE return tracking, EXCEPT failed-delivery which reuses the outbound tracking. Scrap returns never come back → never inbound-scanned.
 
-## DEBUG ROUTES CREATED THIS SESSION (clean up later)
-- /api/daraz/debug-items   (forward items inspection; batch full-raw)
-- /api/daraz/debug-reverse  (reverse list + detail probe)
-Both are temporary; delete after the real fetch/resolve routes are built.
+## Schema — `DarazOrderItem` (central forward+reverse table)
+Added after DarazOrder, before ActivityLog; `npx prisma db push`.
+- `id(cuid)`, **`orderItemId @unique`** (= trade_order_line_id; the upsert key), `darazOrderId, itemName, sku, status, price, storeId,`
+  `trackingNo, shipmentProvider, cancelReturnInitiator, deliveredAt,`
+  `returnTrackingNo, reverseOrderId, reverseOrderLineId, ofcStatus, reverseStatus, whqcDecision, returnReason, refundAmount, requestType, shippingType, createdAt, updatedAt`.
+- Indexes: `@@index([trackingNo])`, `@@index([returnTrackingNo])`, `@@index([darazOrderId])`. **trackingNo / returnTrackingNo NOT unique** (bundle).
+- Related: `DarazOrder` has `trackingNo?, returnStatus?, paymentStatus?, storeId?, orderDate?, deliveredAt?`. `DarazStore` has `lastOrderFetch?, lastReturnFetch?`. `DarazScan.trackingNo?` holds scanned tracking.
 
-## KNOWN TEST DATA
-- Forward delivered: order 215639386580372, item tracking DEXNP025640432, store Yagya Premiums.
-- Return: order 207558548878945, reverse_order_id 502443085678945, return tracking DEXNP009570773,
-  ofc_status RETURN_RTM_DELIVERED, store Yagya Premiums.
-- Tracking format: DEXNP + 9 digits (also UPANP); PND uses XXX-XX-9digits.
----
+## Routes built (Daraz data layer)
+- `/api/daraz/orders/fetch` (GET) — all-store loop, `/orders/get` incremental (`createdAfter = lastOrderFetch ?? now-90d`, then `update_after`), upsert `DarazOrder`, update `lastOrderFetch`. 2nd call returns fetched:0 (rate saved).
+- `/api/daraz/refresh-status` (POST) — `update_after` last 7 days, `sort_by:updated_at`, update changed statuses; internal pagination, offset cap 500.
+- `/api/daraz/fill-delivered-dates` (POST `{offset}`, batch 12) — rewritten to use `/logistic/order/trace`; helpers `extractDeliveredTime`, `countStages` (skip wrong/empty stores); re-fills ALL delivered/shipped (overwrites old wrong values); auto-paginate to done.
+- `/api/daraz/fill-tracking` (POST `{offset}`, batch 12) — forward: per DarazOrder, try saved storeId first then all stores, `/order/items/get`, upsert `DarazOrderItem` (tracking_code, status, name, sku, price, shipment_provider, cancel_return_initiator).
+- `/api/daraz/fill-returns` (POST `{storeIndex, windowIndex, pageNo}`) — reverse: window-by-window (15-day windows from 2019); per window list reverse orders, filter `request_type==="RETURN"`, call detail (GET), upsert return fields onto `DarazOrderItem` by `orderItemId`(=trade_order_line_id); create a new row if the forward item is absent (return-only rows lack forward fields; itemName falls back to seller_sku_id). Advances page→window→store; `capRisk = total>5000`.
+- `/api/daraz/reconcile` (POST `{offset}`, paginated, `nextOffset:null` at end). `/api/daraz/order-detail` (GET `?orderId=&store=`) live item details. Debug (temporary, delete later): `debug-items`, `debug-reverse`, `debug-order-trace`, plus older `debug-*`/`fix-*`/`cleanup-*`.
 
-# SESSION 2 UPDATE (reverse fetch built, forward+reverse foundation complete)
+### Sync orchestration (Orders page)
+- One **Sync Orders** button drives 4 steps with a 0–100% bar (frontend-driven because one backend call can't finish within Vercel's 10s): A(0–25) `orders/fetch` → B(25–50) `refresh-status` → C(50–75) `fill-delivered-dates`(auto-paginate) → D(75–100) `reconcile`(auto-paginate). Orders page reads DB, not live Daraz, on open.
 
-## SCHEMA BUILT — DarazOrderItem (Option A: forward + return in one table)
-Model added to prisma/schema.prisma (after DarazOrder, before ActivityLog). Pushed via `npx prisma db push`.
-Fields: id(cuid), orderItemId(@unique), darazOrderId, itemName, sku, status, price, storeId,
-trackingNo, shipmentProvider, cancelReturnInitiator, deliveredAt,
-returnTrackingNo, reverseOrderId, reverseOrderLineId, ofcStatus, reverseStatus, whqcDecision,
-returnReason, refundAmount, requestType, shippingType, createdAt, updatedAt.
-Indexes: @@index([trackingNo]), @@index([returnTrackingNo]), @@index([darazOrderId]).
-KEY: orderItemId is the @unique upsert key. trackingNo / returnTrackingNo are NOT unique
-(bundle = one outbound tracking on many items). order_item_id = trade_order_line_id links
-forward item and reverse line (1:1).
+## Verified data / counts
+- Forward fill: DarazOrder 1407; DarazOrderItem 1566 items, withTracking 921 (645 null = canceled/pending).
+- Reverse fill (2019→now, 15-day windows, ~54 min, 2465 calls): returnsFound 4257, upserted 4509.
+- Final `DarazOrderItem`: totalItems 5793, withTracking 921, withReturnTracking 3923, withReverseId 4255, whqcMerchant 2667, whqcCustomer 253.
+- Delivered-date trace re-fill: 581/703 delivered/shipped got accurate `deliveredAt`; rest correctly null (in transit). Seller Center lifetime: 8028 delivered items.
+- Store order (orderBy id asc, used by window/store index): 0 yagyapremiums, 1 budgetdealsnepal, 2 blackdragonnepal, 3 dealmeonsnepal, 4 firstdrop79, 5 gadgetfinder2020, 6 gadgetsfindernepal, 7 selfcarenepa, 8 tb200247.
 
-## ROUTES BUILT
-- /api/daraz/fill-tracking [POST {offset}, batch 12] — forward: loops DarazOrder, for each
-  uses saved storeId first (1 call), falls back to all stores; calls /order/items/get; upserts
-  DarazOrderItem with tracking_code, status, name, sku, paid_price, shipment_provider,
-  cancel_return_initiator. Auto-paginate {offset}->done.
-- /api/daraz/fill-returns [POST {storeIndex, windowIndex, pageNo}] — reverse: window-by-window
-  (see cap fix below); per window lists reverse orders, filters request_type==="RETURN", calls
-  detail, upserts return fields onto DarazOrderItem by orderItemId (=trade_order_line_id);
-  creates new row if forward item absent. Advances page->window->store.
+## Known-good test data
+- Delivered: **order 215639386580372** → tracking DEXNP025640432, true Delivered 2026-05-29 16:21:22 NPT (epoch ms 1780050982948), store Yagya Premiums (idx 0, cuid cmprwajvg0000mqyvdz6wtw98). Our system once wrongly showed 5/30 (item updated_at bug).
+- Return (merchant): order 215524547256631, reverse_order_id 505789557356631, return tracking DEXNP025419650 / DEXNP025444591, whqc return_to_merchant.
+- Return (customer/QC): order 215593960436740, ofc RETURN_RTC_DELIVERY_FAILED, whqc return_to_customer.
+- Failed delivery: order 215468222820925, forward status shipped_back, tracking DEXNP025635049.
+- Other verified items: 215532508106182 (DEXNP025439200), 215572158888398 (DEXNP025511239), 215321287636677 (returned, DEXNP025345916), 215414061852555 (DEXNP025527352). Tracking-only "unknown" scan to test matching: DEXNP025700056.
 
-## PAGE-100 CAP (critical) + SOLUTION
-/reverse/getreverseordersforseller returns NOTHING past page 100 (page 101 -> total 0, items 0),
-even when total > 5000. Deep pagination is capped. SOLUTION: filter by time window using
-TradeOrderLineCreatedTimeRangeStart / TradeOrderLineCreatedTimeRangeEnd (epoch MS) — these
-DO filter (verified: total dropped 11008 -> 355 for a 2-month window). Other guessed names like
-ReverseOrderLineCreatedTimeRange did NOT filter. We walk 15-day windows from 2019-01-01 to now
-(181 windows/store); each window stays under the 100-page cap. capRisk flag = total>5000 (none hit).
+## Decisions
+- Orders page reads central DB (not live Daraz per open) — live-everywhere rejected (~11k orders, 10s timeout, rate-limit/penalty). Filled by Sync button + nightly cron. Auto-sync-on-change rejected (Daraz sends no push → constant polling). Reverse via the reverse endpoints (current) for tracking+classification; the `/orders/get?status=` approach is the older fallback. Fix delivered-date accuracy BEFORE surfacing it in the Sync button.
 
-## RETURN TYPE CLASSIFICATION (verified with 3 real orders) — how to know inbound-scannable
-Decisive field = whqc_decision (ofc_status agrees):
-- request_type "CANCEL" -> NO tracking at all (item never shipped, e.g. payment fail). NOT inbound.
-  We skip CANCEL in reverse fetch (only process RETURN).
-- request_type "RETURN" + whqc_decision "return_to_merchant" (ofc_status RETURN_RTM_*) -> comes
-  back to OUR store -> INBOUND scan happens. (verified: order 215524547256631, tracking DEXNP025419650)
-- request_type "RETURN" + whqc_decision "return_to_customer" (ofc_status RETURN_RTC_*) -> QC sent
-  back to customer -> NOT inbound. (verified: order 215593960436740, ofc RETURN_RTC_DELIVERY_FAILED)
-- FAILED DELIVERY (customer never received) -> NOT in reverse API at all. Lives in FORWARD
-  /order/items/get with status "shipped_back" (or "failed_delivery"); tracking_code is the SAME
-  outbound tracking. INBOUND scan happens. (verified: order 215468222820925, status shipped_back,
-  tracking DEXNP025635049)
-
-## INBOUND SCAN MATCH RULE (for Step 3 resolve-scans)
-A return tracking scanned by staff matches DarazOrderItem where:
-  returnTrackingNo == scan   (customer returns; whqcDecision return_to_merchant = expected inbound)
-  OR trackingNo == scan AND status IN ("shipped_back","failed_delivery","returned")  (failed delivery)
-return_to_customer items are NOT expected as inbound.
-
-## FORWARD ITEM STATUS VALUES SEEN (/order/items/get status field)
-delivered, shipped, pending, ready_to_ship, canceled, returned, failed_delivery, shipped_back,
-shipped_back_success. (tracking null for canceled/pending — never shipped; correct.)
-
-## REVERSE status VALUES SEEN
-ofc_status: RETURN_RTM_DELIVERED (returned to seller), RETURN_RTC_DELIVERY_FAILED (back to customer).
-reverse_status: REFUND_SUCCESS, REQUEST_REJECT, CANCEL_SUCCESS, REQUEST_INITIATE.
-whqc_decision: return_to_merchant, return_to_customer (null while still in process).
-
-## DATA LOADED (verified counts after full run)
-- DarazOrder: 1407 orders.
-- fill-tracking: 1566 forward items, withTracking 921 (645 null = canceled/pending, correct).
-- fill-returns (2019->now, 15-day windows, ~54 min, 2465 calls): returnsFound 4257, upserted 4509.
-- Final DarazOrderItem: totalItems 5793, withTracking 921, withReturnTracking 3923,
-  withReverseId 4255, whqcMerchant 2667, whqcCustomer 253.
-- Return-only rows have no forward fields (itemName falls back to seller_sku_id).
-
-## STORE LIST ORDER (orderBy id asc; used by window/store index)
-0 yagyapremiums, 1 budgetdealsnepal, 2 blackdragonnepal, 3 dealmeonsnepal, 4 firstdrop79,
-5 gadgetfinder2020, 6 gadgetsfindernepal, 7 selfcarenepa, 8 tb200247.
-
-## DEBUG ROUTES NOW (clean up later)
-debug-items, debug-reverse are temporary. fill-tracking, fill-returns are REAL (keep).
-
-## NEXT (Step 3 onward)
-3. resolve-scans: match unmatched DarazScan/alerts by tracking using INBOUND SCAN MATCH RULE.
-4. Manual test, then nightly cron 8PM NPT (targeted: Outbound/Inbound/Alerts page items only).
-5. Reconcile: run after resolve; add deleted:false filter.
-6. INCREMENTAL cron: reuse TradeOrderLineCreatedTimeRange to fetch only recent windows, not all 181.
+## Pending / Next
+1. **resolve-scans** (`/api/daraz/resolve-scans`): match unmatched `DarazScan`/alerts locally by tracking using the INBOUND MATCH RULE (DARAZ_SCANS_CLAIMS); attach darazOrderId+store+status+customer+product on match. Manual-test on DEXNP025640432 (outbound) and DEXNP025444591 (return) first.
+2. Nightly cron 8 PM NPT (= 14:15 UTC), `CRON_SECRET`, TARGETED (only items on Outbound/Inbound/Alerts pages): targeted fetch → resolve-scans → reconcile. Use `TradeOrderLineCreatedTimeRange` for incremental (recent windows only, not all 181).
+3. Reconcile: run AFTER resolve; add `deleted:false` filter.
+4. Token refresh job so store access_tokens don't silently expire. Cleanup debug routes + unused Orders-page handlers.
