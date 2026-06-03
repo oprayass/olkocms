@@ -409,7 +409,6 @@ export default function AlertsPage() {
                         <span>Order: {alert.darazOrderId}</span>
                         {o?.storeName && <span className="text-blue-400">{o.storeName}</span>}
                         {o?.customerName && <span>{o.customerName}</span>}
-                  <div className="text-white text-xs">Rs. {o.price ?? "-"} x {o.quantity ?? 1}</div>
                       </div>
                     </div>
                   </div>
