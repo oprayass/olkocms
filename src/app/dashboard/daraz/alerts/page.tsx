@@ -35,9 +35,9 @@ const STATUS_COLORS: Record<string, string> = {
 };
 
 const ALERT_TYPE_LABELS: Record<string, { label: string; color: string }> = {
-  outbound_not_delivered: { label: "Outbound â†’ Not Delivered", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
-  return_not_received: { label: "Return â†’ Not Received", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
-  wrong_store: { label: "Wrong Store / à¤—à¤²à¤¤ à¤¸à¥à¤Ÿà¥‹à¤°", color: "bg-red-500/10 text-red-400 border-red-500/20" },
+  outbound_not_delivered: { label: "Outbound -> Not Delivered", color: "bg-orange-500/10 text-orange-400 border-orange-500/20" },
+  return_not_received: { label: "Return -> Not Received", color: "bg-purple-500/10 text-purple-400 border-purple-500/20" },
+  wrong_store: { label: "Wrong Store", color: "bg-red-500/10 text-red-400 border-red-500/20" },
 };
 
 const DATE_FILTERS = [
@@ -47,7 +47,7 @@ const DATE_FILTERS = [
   { key: "last_week", label: "Last Week" },
   { key: "this_month", label: "This Month" },
   { key: "last_month", label: "Last Month" },
-  { key: "lost", label: "ðŸ”´ Lost (2m+)" },
+  { key: "lost", label: "Lost (2m+)" },
   { key: "all", label: "All Time" },
 ];
 
@@ -131,18 +131,18 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
                 </div>
                 <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
                   <div className="flex items-center gap-1.5 text-gray-400 text-xs"><User className="w-3 h-3" /> Customer</div>
-                  <div className="text-white text-xs">{o.customerName ?? "â€”"}</div>
+                  <div className="text-white text-xs">{o.customerName ?? "-"}</div>
                 </div>
                 <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
                   <div className="flex items-center gap-1.5 text-gray-400 text-xs"><TrendingUp className="w-3 h-3" /> Status</div>
-                  <div className="text-amber-400 text-xs font-medium">{o.status ?? "â€”"}</div>
+                  <div className="text-amber-400 text-xs font-medium">{o.status ?? "-"}</div>
                 </div>
                 <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
-                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Package className="w-3 h-3" /> Price Ã— Qty</div>
-                  <div className="text-white text-xs">Rs. {o.price ?? "â€”"} Ã— {o.quantity ?? 1}</div>
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs"><Package className="w-3 h-3" /> Price x Qty</div>
+                  <div className="text-white text-xs">Rs. {o.price ?? "-"} x {o.quantity ?? 1}</div>
                 </div>
                 <div className="bg-gray-800 rounded-xl p-3 space-y-0.5">
-                  <div className="flex items-center gap-1.5 text-gray-400 text-xs">ðŸšš Tracking</div>
+                  <div className="flex items-center gap-1.5 text-gray-400 text-xs">Tracking</div>
                   <div className="text-white text-xs font-mono">{o.trackingNo ?? "none"}</div>
                 </div>
               </div>
@@ -156,7 +156,7 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
           ) : (
             <div className="bg-gray-800 rounded-xl p-4 text-center">
               <p className="text-gray-400 text-sm">Order ID: <span className="text-white font-mono">{alert.darazOrderId}</span></p>
-              <p className="text-gray-500 text-xs mt-1">OlkoCMS à¤®à¤¾ order record à¤›à¥ˆà¤¨</p>
+              <p className="text-gray-500 text-xs mt-1">No order record in OlkoCMS</p>
             </div>
           )}
 
@@ -187,7 +187,7 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
               disabled={updating === alert.id}
               className="flex-1 py-2 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded-xl text-sm hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
             >
-              Resolve âœ“
+              Resolve
             </button>
           )}
         </div>
@@ -325,8 +325,8 @@ export default function AlertsPage() {
       {reconcileResult && (
         <div className={`rounded-xl border p-4 text-sm ${reconcileResult.created === -1 ? "bg-red-500/10 border-red-500/20 text-red-400" : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"}`}>
           {reconcileResult.created === -1
-            ? "âŒ Reconciliation failed"
-            : `âœ… Reconciliation complete â€” ${reconcileResult.created} new alerts created, ${reconcileResult.skipped} skipped`}
+            ? "Reconciliation failed"
+            : `Reconciliation complete - ${reconcileResult.created} new alerts created, ${reconcileResult.skipped} skipped`}
         </div>
       )}
 
@@ -392,7 +392,7 @@ export default function AlertsPage() {
                   <div className="flex items-center gap-3 flex-1 min-w-0">
                     <div className="space-y-1 flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        {isLost && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded border border-gray-600">ðŸ”´ LOST</span>}
+                        {isLost && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded border border-gray-600">LOST</span>}
                         <span className="text-white font-medium text-sm truncate">
                           {o?.product ?? alert.productName ?? "Unknown Item"}
                         </span>
@@ -407,9 +407,9 @@ export default function AlertsPage() {
                       </div>
                       <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
                         <span>Order: {alert.darazOrderId}</span>
-                        {o?.storeName && <span className="text-blue-400">ðŸª {o.storeName}</span>}
-                        {o?.customerName && <span>ðŸ‘¤ {o.customerName}</span>}
-                        {o?.price && <span>Rs. {o.price}</span>}
+                        {o?.storeName && <span className="text-blue-400">{o.storeName}</span>}
+                        {o?.customerName && <span>{o.customerName}</span>}
+                  <div className="text-white text-xs">Rs. {o.price ?? "-"} x {o.quantity ?? 1}</div>
                       </div>
                     </div>
                   </div>
