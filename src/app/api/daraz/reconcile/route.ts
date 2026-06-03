@@ -44,8 +44,8 @@ export async function POST(req: NextRequest) {
 
     const twoMonthsAgo = new Date();
     twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    const tenDaysAgo = new Date();
-    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    const CUTOFF = new Date("2026-05-01T00:00:00+05:45"); // only alert on outbound scanned on/after 1 May 2026
+
 
     // offset 0: clear stale outbound alerts whose order is now delivered/done.
     if (offset === 0) {
@@ -73,7 +73,7 @@ export async function POST(req: NextRequest) {
       where: {
         deleted: false,
         scanType: "outbound",
-        createdAt: { gte: tenDaysAgo },
+        createdAt: { gte: CUTOFF },
         OR: [{ trackingNo: { not: null } }, { darazOrderId: { not: null } }],
       },
       skip: offset,

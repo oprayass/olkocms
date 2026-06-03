@@ -213,8 +213,8 @@ export async function GET(req: NextRequest) {
     let alertsCreated = 0;
     const twoMonthsAgo = new Date();
     twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-    const tenDaysAgo = new Date();
-    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    const CUTOFF = new Date("2026-05-01T00:00:00+05:45"); // only alert on outbound scanned on/after 1 May 2026
+
 
     // 4a: clear stale outbound alerts now delivered/done
     const stale = await prisma.darazAlert.findMany({
@@ -240,7 +240,7 @@ export async function GET(req: NextRequest) {
       where: {
         deleted: false,
         scanType: "outbound",
-        createdAt: { gte: tenDaysAgo },
+        createdAt: { gte: CUTOFF },
         OR: [{ trackingNo: { not: null } }, { darazOrderId: { not: null } }],
       },
     });
