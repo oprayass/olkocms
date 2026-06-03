@@ -3,6 +3,36 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
+// Central-DB-first reconciliation. Runs AFTER resolve-scans (which attaches real
+// order data to scans and clears wrongStore on matched inbound scans).
+// Derives three DarazAlert types purely from central DarazOrderItem + DarazScan:
+//   A) outbound_not_delivered : outbound scan exists, but central shows no delivery progress.
+//   B) return_not_received     : central expects an inbound (customer return OR failed delivery), but no inbound scan.
+//   C) wrong_store             : inbound scan still flagged wrongStore (resolve-scans could not match).
+// All DarazScan reads filter deleted:false.
+
+const FAILED_STATUSES = ["shipped_back", "failed_delivery", "returned", "shipped_back_success"];
+const DELIVERED_OR_DONE = [
+  "delivered",
+  "shipped",
+  "transit_to_ship",
+  "shipped_back",
+  "returned",
+  "canceled",
+  "cancelled",
+];
+
+async function alertExists(alertType: string, alertKey: string) {
+  const existing = await prisma.darazAlert.findFirst({
+    where: {
+      alertType,
+      notes: { contains: alertKey },
+      status: { not: "resolved" },
+    },
+  });
+  return !!existing;
+}
+
 export async function POST(req: NextRequest) {
   try {
     const body = await req.json().catch(() => ({}));
@@ -12,36 +42,39 @@ export async function POST(req: NextRequest) {
     let created = 0;
     let skipped = 0;
 
-    // offset 0 मा — पुराना "Unknown" outbound alerts clear (जसको order अब fetch भयो)
+    const twoMonthsAgo = new Date();
+    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
+    const tenDaysAgo = new Date();
+    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+
+    // offset 0: clear stale outbound alerts whose order is now delivered/done.
     if (offset === 0) {
-      const unknownAlerts = await prisma.darazAlert.findMany({
+      const stale = await prisma.darazAlert.findMany({
         where: { alertType: "outbound_not_delivered" },
         select: { id: true, darazOrderId: true },
       });
-      for (const a of unknownAlerts) {
+      for (const a of stale) {
         if (!a.darazOrderId || a.darazOrderId === "unknown") {
           await prisma.darazAlert.delete({ where: { id: a.id } });
           continue;
         }
-        const ord = await prisma.darazOrder.findFirst({ where: { darazOrderId: a.darazOrderId }, select: { id: true } });
-        if (ord) await prisma.darazAlert.delete({ where: { id: a.id } });
+        const ord = await prisma.darazOrder.findFirst({
+          where: { darazOrderId: a.darazOrderId },
+          select: { status: true },
+        });
+        if (ord && DELIVERED_OR_DONE.includes((ord.status ?? "").toLowerCase())) {
+          await prisma.darazAlert.delete({ where: { id: a.id } });
+        }
       }
     }
 
-    const twoMonthsAgo = new Date();
-    twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
-
-    // 1. Outbound scans — last 10 days मात्र
-    const tenDaysAgo = new Date();
-    tenDaysAgo.setDate(tenDaysAgo.getDate() - 10);
+    // ---------- A) outbound_not_delivered (paginated) ----------
     const outboundScans = await prisma.darazScan.findMany({
       where: {
+        deleted: false,
         scanType: "outbound",
         createdAt: { gte: tenDaysAgo },
-        OR: [
-          { trackingNo: { not: null } },
-          { darazOrderId: { not: null } },
-        ],
+        OR: [{ trackingNo: { not: null } }, { darazOrderId: { not: null } }],
       },
       skip: offset,
       take: limit,
@@ -49,7 +82,7 @@ export async function POST(req: NextRequest) {
     });
 
     for (const scan of outboundScans) {
-      // DarazOrder मा match — trackingNo वा darazOrderId
+      // Look up the order status in central DarazOrder (by tracking or orderId).
       const order = await prisma.darazOrder.findFirst({
         where: {
           OR: [
@@ -59,24 +92,19 @@ export async function POST(req: NextRequest) {
         },
       });
 
-      const DELIVERED_STATUSES = ["delivered", "shipped", "transit_to_ship", "shipped_back", "returned", "canceled", "cancelled"];
+      const status = (order?.status ?? "").toLowerCase();
       const shouldAlert =
-        !order ||
-        (!DELIVERED_STATUSES.includes((order.status ?? "").toLowerCase()) &&
-         (order.status === "ready_to_ship" || order.status === "pending" || order.status === "packed" || order.status === "unknown"));
+        !order || !DELIVERED_OR_DONE.includes(status);
+      if (!shouldAlert) {
+        skipped++;
+        continue;
+      }
 
-      if (!shouldAlert) { skipped++; continue; }
-
-      // Duplicate alert check
       const alertKey = scan.trackingNo ?? scan.darazOrderId ?? scan.id;
-      const existing = await prisma.darazAlert.findFirst({
-        where: {
-          alertType: "outbound_not_delivered",
-          notes: { contains: alertKey },
-          status: { not: "resolved" },
-        },
-      });
-      if (existing) { skipped++; continue; }
+      if (await alertExists("outbound_not_delivered", alertKey)) {
+        skipped++;
+        continue;
+      }
 
       const isLost = scan.createdAt < twoMonthsAgo;
       await prisma.darazAlert.create({
@@ -85,7 +113,7 @@ export async function POST(req: NextRequest) {
           productName: scan.itemName ?? scan.productName ?? order?.product ?? "Unknown Item",
           alertType: "outbound_not_delivered",
           status: isLost ? "lost" : "unresolved",
-          notes: `Order: ${scan.darazOrderId ?? "unknown"} | Tracking: ${scan.trackingNo ?? "none"} — outbound scan भयो तर Daraz मा delivery update भएन। Status: ${order?.status ?? "not found"}। Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
+          notes: `Tracking: ${scan.trackingNo ?? "none"} | Order: ${scan.darazOrderId ?? "unknown"} - outbound scanned but no delivery progress in central DB. Status: ${order?.status ?? "not found"}. Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
         },
       });
       created++;
@@ -93,78 +121,88 @@ export async function POST(req: NextRequest) {
 
     const totalOutbound = await prisma.darazScan.count({
       where: {
+        deleted: false,
         scanType: "outbound",
-        OR: [
-          { trackingNo: { not: null } },
-          { darazOrderId: { not: null } },
-        ],
+        OR: [{ trackingNo: { not: null } }, { darazOrderId: { not: null } }],
       },
     });
 
-    // 2. Return orders — offset 0 मा मात्र
+    // ---------- B) return_not_received + C) wrong_store (offset 0 only) ----------
     if (offset === 0) {
-      const returnOrders = await prisma.darazOrder.findMany({
+      // Expected inbound from central DarazOrderItem:
+      //   (b1) customer return: whqcDecision return_to_merchant, has returnTrackingNo
+      //   (b2) failed delivery: status in FAILED_STATUSES, has trackingNo
+      const expectedReturns = await prisma.darazOrderItem.findMany({
         where: {
-          status: { in: ["returned", "failed_delivery", "shipped_back", "shipped_back_success"] },
+          OR: [
+            { whqcDecision: "return_to_merchant", returnTrackingNo: { not: null } },
+            { status: { in: FAILED_STATUSES }, trackingNo: { not: null } },
+          ],
         },
       });
 
-      for (const order of returnOrders) {
-        // inbound scan — trackingNo वा darazOrderId बाट match
+      for (const item of expectedReturns) {
+        // The tracking the warehouse would scan on inbound:
+        //   customer return -> returnTrackingNo ; failed delivery -> trackingNo
+        const isMerchantReturn = item.whqcDecision === "return_to_merchant" && !!item.returnTrackingNo;
+        const inboundTracking = isMerchantReturn ? item.returnTrackingNo : item.trackingNo;
+        if (!inboundTracking) {
+          skipped++;
+          continue;
+        }
+
+        // Was it inbound-scanned? (deleted:false; match by the inbound tracking, or by orderId.)
         const inbound = await prisma.darazScan.findFirst({
           where: {
+            deleted: false,
             scanType: "inbound",
             OR: [
-              order.trackingNo ? { trackingNo: order.trackingNo } : {},
-              { darazOrderId: order.darazOrderId },
+              { trackingNo: inboundTracking },
+              item.darazOrderId ? { darazOrderId: item.darazOrderId } : {},
             ].filter((o) => Object.keys(o).length > 0),
           },
         });
-        if (inbound) { skipped++; continue; }
+        if (inbound) {
+          skipped++;
+          continue;
+        }
 
-        const alertKey = order.trackingNo ?? order.darazOrderId;
-        const existing = await prisma.darazAlert.findFirst({
-          where: {
-            alertType: "return_not_received",
-            notes: { contains: alertKey },
-            status: { not: "resolved" },
-          },
-        });
-        if (existing) { skipped++; continue; }
+        const alertKey = inboundTracking;
+        if (await alertExists("return_not_received", alertKey)) {
+          skipped++;
+          continue;
+        }
 
+        const kind = isMerchantReturn ? "customer return" : "failed delivery";
         await prisma.darazAlert.create({
           data: {
-            darazOrderId: order.darazOrderId,
-            productName: order.product,
+            darazOrderId: item.darazOrderId ?? "unknown",
+            productName: item.itemName ?? "Unknown Item",
             alertType: "return_not_received",
             status: "unresolved",
-            notes: `Order: ${order.darazOrderId} | Tracking: ${order.trackingNo ?? "none"} — Daraz मा status "${order.status}" छ तर store मा inbound scan भएन। Store: ${order.storeId ?? "unknown"}`,
+            notes: `Tracking: ${inboundTracking} | Order: ${item.darazOrderId ?? "unknown"} - central DB shows ${kind} (status ${item.status ?? item.whqcDecision ?? "?"}) but no inbound scan. Store: ${item.storeId ?? "unknown"}`,
           },
         });
         created++;
       }
 
-      // 3. Wrong store
+      // C) wrong_store: inbound scans resolve-scans could not match.
       const wrongStoreScans = await prisma.darazScan.findMany({
-        where: { scanType: "inbound", wrongStore: true },
+        where: { deleted: false, scanType: "inbound", wrongStore: true },
       });
       for (const scan of wrongStoreScans) {
         const alertKey = scan.trackingNo ?? scan.darazOrderId ?? scan.id;
-        const existing = await prisma.darazAlert.findFirst({
-          where: {
-            alertType: "wrong_store",
-            notes: { contains: alertKey },
-            status: { not: "resolved" },
-          },
-        });
-        if (existing) { skipped++; continue; }
+        if (await alertExists("wrong_store", alertKey)) {
+          skipped++;
+          continue;
+        }
         await prisma.darazAlert.create({
           data: {
             darazOrderId: scan.darazOrderId ?? "unknown",
             productName: scan.itemName ?? scan.productName ?? "Unknown Item",
             alertType: "wrong_store",
             status: "unresolved",
-            notes: `Order: ${scan.darazOrderId ?? "unknown"} | Tracking: ${scan.trackingNo ?? "none"} — गलत store मा inbound scan भयो। Scanned by: ${scan.scannedBy ?? "unknown"}`,
+            notes: `Tracking: ${scan.trackingNo ?? "none"} | Order: ${scan.darazOrderId ?? "unknown"} - inbound scanned but tracking not found in central DB (wrong/unknown store). Scanned by: ${scan.scannedBy ?? "unknown"}`,
           },
         });
         created++;
