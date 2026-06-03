@@ -224,8 +224,15 @@ export default function DarazOrdersPage() {
     }
     setSyncProgress(75);
 
-    // Step D: Reconcile + Alerts (band 75-100, auto-paginate)
-    setSyncStep("Step 4/4: Reconciling scans and alerts...");
+    // Step D: Resolve scans (match scans to central DB by INBOUND MATCH RULE)
+    setSyncStep("Step 4/5: Matching scans to orders...");
+    try {
+      await fetch("/api/daraz/resolve-scans", { method: "POST" });
+    } catch { /* continue to reconcile even if resolve fails */ }
+    setSyncProgress(80);
+
+    // Step E: Reconcile + Alerts (band 80-100, auto-paginate)
+    setSyncStep("Step 5/5: Reconciling scans and alerts...");
     {
       let offset = 0;
       let guard = 0;
@@ -265,7 +272,7 @@ export default function DarazOrdersPage() {
     const matchStatus = statusFilter === "all" || (statusFilter === "to_ship" ? TO_SHIP.includes(o.status) : o.status === statusFilter);
 
     let matchDate = true;
-    // delivered filter Ã Â¤Â®Ã Â¤Â¾ deliveredAt Ã Â¤Â²Ã Â¥â€¡ Ã Â¤â€ºÃ Â¤Â¾Ã Â¤Â¨Ã Â¥ÂÃ Â¤Â¨Ã Â¥â€¡, Ã Â¤â€¦Ã Â¤Â¨Ã Â¥ÂÃ Â¤Â¯Ã Â¤Â¥Ã Â¤Â¾ orderDate
+    // delivered filter ÃƒÂ Ã‚Â¤Ã‚Â®ÃƒÂ Ã‚Â¤Ã‚Â¾ deliveredAt ÃƒÂ Ã‚Â¤Ã‚Â²ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ ÃƒÂ Ã‚Â¤Ã¢â‚¬ÂºÃƒÂ Ã‚Â¤Ã‚Â¾ÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡, ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¦ÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â¯ÃƒÂ Ã‚Â¤Ã‚Â¥ÃƒÂ Ã‚Â¤Ã‚Â¾ orderDate
     const useDelivered = statusFilter === "delivered" && o.deliveredAt;
     const created = new Date(useDelivered ? o.deliveredAt! : (o.orderDate || o.createdAt));
     if (period === "custom") {
@@ -387,7 +394,7 @@ export default function DarazOrdersPage() {
           onClick={() => setStoreSort(!storeSort)}
           className={`px-4 py-2 rounded-lg text-sm border ${storeSort ? "bg-violet-700 border-violet-600 text-white" : "bg-gray-900 border-gray-800 text-gray-400"}`}
         >
-          {storeSort ? "Store-wise Ã¢Å“â€œ" : "Store-wise sort"}
+          {storeSort ? "Store-wise ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“" : "Store-wise sort"}
         </button>
       </div>
 
