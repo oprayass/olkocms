@@ -239,7 +239,7 @@ export default function DarazOrdersPage() {
           });
           const data = await res.json();
           const next = data?.nextOffset;
-          const pct = 75 + Math.min(24, Math.floor(offset / 200));
+          const pct = 80 + Math.min(19, Math.floor(offset / 200));
           setSyncProgress(pct);
           if (next === null || next === undefined) break;
           offset = next;
@@ -265,7 +265,7 @@ export default function DarazOrdersPage() {
     const matchStatus = statusFilter === "all" || (statusFilter === "to_ship" ? TO_SHIP.includes(o.status) : o.status === statusFilter);
 
     let matchDate = true;
-    // delivered filter मा deliveredAt ले छान्ने, अन्यथा orderDate
+    // delivered filter Ã Â¤Â®Ã Â¤Â¾ deliveredAt Ã Â¤Â²Ã Â¥â€¡ Ã Â¤â€ºÃ Â¤Â¾Ã Â¤Â¨Ã Â¥ÂÃ Â¤Â¨Ã Â¥â€¡, Ã Â¤â€¦Ã Â¤Â¨Ã Â¥ÂÃ Â¤Â¯Ã Â¤Â¥Ã Â¤Â¾ orderDate
     const useDelivered = statusFilter === "delivered" && o.deliveredAt;
     const created = new Date(useDelivered ? o.deliveredAt! : (o.orderDate || o.createdAt));
     if (period === "custom") {
@@ -387,7 +387,7 @@ export default function DarazOrdersPage() {
           onClick={() => setStoreSort(!storeSort)}
           className={`px-4 py-2 rounded-lg text-sm border ${storeSort ? "bg-violet-700 border-violet-600 text-white" : "bg-gray-900 border-gray-800 text-gray-400"}`}
         >
-          {storeSort ? "Store-wise ✓" : "Store-wise sort"}
+          {storeSort ? "Store-wise Ã¢Å“â€œ" : "Store-wise sort"}
         </button>
       </div>
 
