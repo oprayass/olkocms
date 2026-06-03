@@ -13,6 +13,59 @@ function signRequest(apiPath: string, params: Record<string, string>, appSecret:
   return crypto.createHmac("sha256", appSecret).update(signBase, "utf8").digest("hex").toUpperCase();
 }
 
+// Incremental write into DarazOrder: new -> create, changed -> update, same -> skip.
+// Never wipes existing fields with null/undefined/"N/A".
+async function upsertDarazOrder(o: {
+  darazOrderId: string;
+  customerName: string;
+  product: string;
+  quantity: number;
+  price: number;
+  status: string;
+  storeId: string;
+  orderDate: Date | null;
+}): Promise<"created" | "updated" | "skipped"> {
+  const existing = await prisma.darazOrder.findUnique({
+    where: { darazOrderId: o.darazOrderId },
+  });
+
+  if (!existing) {
+    await prisma.darazOrder.create({
+      data: {
+        darazOrderId: o.darazOrderId,
+        customerName: o.customerName,
+        product: o.product,
+        quantity: o.quantity,
+        price: o.price,
+        status: o.status,
+        storeId: o.storeId,
+        orderDate: o.orderDate,
+      },
+    });
+    return "created";
+  }
+
+  const changes: Record<string, unknown> = {};
+  if (o.status && o.status !== existing.status) changes.status = o.status;
+  if (o.customerName && o.customerName !== "N/A" && o.customerName !== existing.customerName)
+    changes.customerName = o.customerName;
+  if (o.price && o.price !== existing.price) changes.price = o.price;
+  if (o.storeId && o.storeId !== existing.storeId) changes.storeId = o.storeId;
+  if (
+    o.orderDate &&
+    o.orderDate.getTime() !== (existing.orderDate ? existing.orderDate.getTime() : 0)
+  )
+    changes.orderDate = o.orderDate;
+
+  if (Object.keys(changes).length === 0) return "skipped";
+
+  await prisma.darazOrder.update({
+    where: { darazOrderId: o.darazOrderId },
+    data: changes,
+  });
+  return "updated";
+}
+
 export async function GET() {
   try {
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
@@ -27,7 +80,9 @@ export async function GET() {
     }
 
     let totalFetched = 0;
-    let totalSaved = 0;
+    let created = 0;
+    let updated = 0;
+    let skipped = 0;
     const results: any[] = [];
 
     for (const store of stores) {
@@ -36,7 +91,7 @@ export async function GET() {
         const timestamp = Date.now().toString();
         const fetchStart = new Date();
 
-        // Incremental: lastOrderFetch भए त्यसपछिको मात्र, नत्र last 90 days
+        // Incremental window: from lastOrderFetch if present, else last 90 days.
         const createdAfter = store.lastOrderFetch
           ? store.lastOrderFetch.toISOString()
           : new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
@@ -65,30 +120,23 @@ export async function GET() {
         totalFetched += orders.length;
 
         for (const o of orders) {
-          await prisma.darazOrder.upsert({
-            where: { darazOrderId: String(o.order_id) },
-            update: {
-              status: o.statuses?.[0] || o.status || "unknown",
-              customerName: `${o.address_billing?.first_name || ""} ${o.address_billing?.last_name || ""}`.trim() || "N/A",
-              price: parseFloat(o.price) || 0,
-              storeId: store.id,
-              orderDate: o.created_at ? new Date(o.created_at) : null,
-            },
-            create: {
-              darazOrderId: String(o.order_id),
-              customerName: `${o.address_billing?.first_name || ""} ${o.address_billing?.last_name || ""}`.trim() || "N/A",
-              product: o.items_count ? `${o.items_count} item(s)` : "Daraz Order",
-              quantity: o.items_count || 1,
-              price: parseFloat(o.price) || 0,
-              status: o.statuses?.[0] || o.status || "unknown",
-              storeId: store.id,
-              orderDate: o.created_at ? new Date(o.created_at) : null,
-            },
+          const action = await upsertDarazOrder({
+            darazOrderId: String(o.order_id),
+            customerName:
+              `${o.address_billing?.first_name || ""} ${o.address_billing?.last_name || ""}`.trim() || "N/A",
+            product: o.items_count ? `${o.items_count} item(s)` : "Daraz Order",
+            quantity: o.items_count || 1,
+            price: parseFloat(o.price) || 0,
+            status: o.statuses?.[0] || o.status || "unknown",
+            storeId: store.id,
+            orderDate: o.created_at ? new Date(o.created_at) : null,
           });
-          totalSaved++;
+          if (action === "created") created += 1;
+          else if (action === "updated") updated += 1;
+          else skipped += 1;
         }
 
-        // Successful fetch — lastOrderFetch update गर्ने
+        // Successful fetch -> advance lastOrderFetch.
         await prisma.darazStore.update({
           where: { id: store.id },
           data: { lastOrderFetch: fetchStart },
@@ -106,7 +154,15 @@ export async function GET() {
       }
     }
 
-    return NextResponse.json({ success: true, totalFetched, totalSaved, stores: stores.length, results });
+    return NextResponse.json({
+      success: true,
+      totalFetched,
+      created,
+      updated,
+      skipped,
+      stores: stores.length,
+      results,
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 200) }, { status: 500 });
   }
