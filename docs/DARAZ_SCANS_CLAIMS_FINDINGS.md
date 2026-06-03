@@ -7,6 +7,22 @@ The warehouse-side workflow: outbound/inbound scanning, duplicate + wrong-store 
 - Daraz has **no "find order by tracking" endpoint** → orders/returns (which carry tracking) are fetched into a central DB and matched locally by tracking.
 - **Primary identifier is `trackingNo`**, not `darazOrderId`. Tracking is the bridge: `DarazScan.trackingNo` ↔ `DarazOrderItem`/`DarazClaim` ↔ Daraz `tracking_code`.
 
+## CENTRAL-DB ARCHITECTURE (the core design — single source of truth)
+`DarazOrderItem` is the **one central database** that every Daraz page reads from and verifies against. No page makes its own independent Daraz calls for data it can get from the central DB. The model:
+
+- **Write rule = incremental, never duplicate.** Any source (All-To-Ship, Orders sync, fetch routes, cron) that pulls from Daraz must:
+  - look up the row in the central DB by its key (`orderItemId`, and tracking where relevant);
+  - **if it already exists AND nothing changed → ignore** (do NOT re-write);
+  - **only a NEW order/item OR a CHANGED status gets written/updated.**
+  - This is why Daraz calls use `update_after` / time windows — fetch only new-or-changed, not everything.
+- **All-To-Ship page**: pulls to-ship orders, matches central DB; same → skip, new/changed status only → store. It is allowed to be the FIRST to learn a status.
+- **Orders page Sync**: same incremental rule. Because All-To-Ship (or cron) may have ALREADY written a status into the central DB, Orders sync must NOT re-fetch what's already current — only new orders / new statuses. So whichever source runs first wins; the others see "already current" and skip.
+- **Outbound / Inbound / Returns / Alerts pages**: all verify against the SAME central DB. Inbound/outbound scans match a row in the central DB by tracking.
+- **Alerts are derived FROM the central-DB match**, not created at scan time in isolation. An alert exists when scan-vs-central-DB don't agree (e.g. outbound scanned but no matching order; Daraz shows a return/failed-delivery but no inbound scan). Alert page shows data based on this match.
+- **Net effect**: minimal Daraz API calls, no duplicate fetching, one consistent status everywhere, and scans/alerts judged against a single authoritative dataset.
+
+> NOTE (current state vs target): the central table `DarazOrderItem` is BUILT and fully loaded (forward + reverse — see DARAZ_API), but the sources are NOT yet unified under this incremental write rule. Today there are still separate routes (`orders/fetch`, `fill-tracking`, `fill-returns`, a live All-To-Ship page) that aren't yet wired to "write only if new/changed" against `DarazOrderItem`, and `resolve-scans` + DB-derived alerts don't exist yet. Building this unification is the main remaining task (design first, then wire each source).
+
 ## Warehouse workflow (as described by user)
 - **Outbound scan** (stock → Daraz warehouse): capture only `trackingNo`; `timestamp` + `scannedBy` auto-filled from the logged-in session.
 - **Inbound scan** (return / failed delivery coming back): `trackingNo` (+ quantity); everything else auto-fetched/matched.

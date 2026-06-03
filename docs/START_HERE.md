@@ -58,8 +58,8 @@ Everything about the Daraz Open Platform API: signature · ID types · forward `
 **Pull this when**: anything calling Daraz, order/return fetching, tracking, delivered dates, signature, the central `DarazOrderItem` table.
 
 ### `DARAZ_SCANS_CLAIMS_FINDINGS.md`
-Warehouse workflow: outbound/inbound scan rules · duplicate-scan popup (EN/NP) · wrong-store flag · claim management (financial fields + `DarazClaimLog` audit) · `DarazScan`/`DarazClaim`/`DarazAlert` schema · scan/claim routes & pages · **INBOUND MATCH RULE** · resolve-scans + nightly-cron plan · store cuids.
-**Pull this when**: scanning UI/logic, claims, alerts, reconciliation, the tracking-match feature, the nightly cron.
+**CENTRAL-DB ARCHITECTURE (single source of truth — read this for the core design)** · warehouse workflow: outbound/inbound scan rules · duplicate-scan popup (EN/NP) · wrong-store flag · claim management (financial fields + `DarazClaimLog` audit) · `DarazScan`/`DarazClaim`/`DarazAlert` schema · scan/claim routes & pages · **INBOUND MATCH RULE** · resolve-scans + nightly-cron plan · store cuids.
+**Pull this when**: the central-DB design, scanning UI/logic, claims, alerts, reconciliation, the tracking-match feature, the nightly cron, "how should All-To-Ship / Orders sync / Alerts all share one DB".
 
 ---
 
