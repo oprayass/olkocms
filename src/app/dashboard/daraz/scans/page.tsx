@@ -43,7 +43,7 @@ function ScansContent() {
     try {
       const url = view === "deleted"
         ? `/api/daraz/scan-manage?view=deleted${scanType ? `&scanType=${scanType}` : ""}`
-        : `/api/daraz/scan-manage?scanType=${scanType}&view=${view}`;
+        : `/api/daraz/scan-manage?scanType=${scanType}&view=${view}${view === "today" ? "&date=today" : ""}`;
       const res = await fetch(url);
       const data = await res.json();
       setScans(Array.isArray(data.scans) ? data.scans : []);
@@ -62,7 +62,7 @@ function ScansContent() {
   const isAdmin = role === "ADMIN";
 
   const deleteScan = async (id: string) => {
-    if (!confirm("यो scan delete गर्ने? (Deleted folder मा जान्छ, 30 days भित्र undo गर्न सकिन्छ)")) return;
+    if (!confirm("à¤¯à¥‹ scan delete à¤—à¤°à¥à¤¨à¥‡? (Deleted folder à¤®à¤¾ à¤œà¤¾à¤¨à¥à¤›, 30 days à¤­à¤¿à¤¤à¥à¤° undo à¤—à¤°à¥à¤¨ à¤¸à¤•à¤¿à¤¨à¥à¤›)")) return;
     setBusy(id);
     const res = await fetch("/api/daraz/scan-manage", {
       method: "DELETE",
@@ -102,10 +102,10 @@ function ScansContent() {
         <Package className="w-6 h-6 text-amber-400" />
         <div>
           <h1 className="text-2xl font-bold text-white capitalize">
-            {scanType} — {VIEW_LABELS[view] || view}
+            {scanType} â€” {VIEW_LABELS[view] || view}
             <span className="ml-2 text-sm bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{scans.length}</span>
           </h1>
-          <p className="text-gray-400 text-sm">Scan records — delete, undo, र manage गर्नुहोस्</p>
+          <p className="text-gray-400 text-sm">Scan records â€” delete, undo, à¤° manage à¤—à¤°à¥à¤¨à¥à¤¹à¥‹à¤¸à¥</p>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ function ScansContent() {
       ) : scans.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
           <Package className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-          <p className="text-gray-400 text-sm">कुनै scan छैन</p>
+          <p className="text-gray-400 text-sm">à¤•à¥à¤¨à¥ˆ scan à¤›à¥ˆà¤¨</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -156,7 +156,7 @@ function ScansContent() {
                     <span>{new Date(s.createdAt).toLocaleString()}</span>
                   </div>
                   {s.deleted && (
-                    <p className="text-red-400 text-xs">🗑️ Deleted by {s.deletedBy} on {s.deletedAt ? new Date(s.deletedAt).toLocaleString() : ""}</p>
+                    <p className="text-red-400 text-xs">ðŸ—‘ï¸ Deleted by {s.deletedBy} on {s.deletedAt ? new Date(s.deletedAt).toLocaleString() : ""}</p>
                   )}
                 </div>
                 <div className="shrink-0">
@@ -183,7 +183,7 @@ function ScansContent() {
       )}
 
       {!isAdmin && (
-        <p className="text-gray-600 text-xs">Delete/Undo permission सिर्फ admin सँग छ।</p>
+        <p className="text-gray-600 text-xs">Delete/Undo permission à¤¸à¤¿à¤°à¥à¤« admin à¤¸à¤à¤— à¤›à¥¤</p>
       )}
     </div>
   );
