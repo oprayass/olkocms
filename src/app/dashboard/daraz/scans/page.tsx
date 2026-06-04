@@ -1,7 +1,8 @@
 "use client";
 import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
-import { Package, Trash2, RotateCcw, AlertTriangle, Clock } from "lucide-react";
+import { Package, Trash2, RotateCcw, AlertTriangle, Clock, Search, AlertOctagon } from "lucide-react";
+import { validateTracking, looksLikeQrOrAddress } from "@/lib/trackingValidator";
 import { resolveStoreName } from "@/lib/storeMap";
 
 interface Scan {
@@ -31,7 +32,11 @@ function ScansContent() {
   const params = useSearchParams();
   const router = useRouter();
   const scanType = params.get("type") || "inbound";
-  const view = params.get("view") || "all";
+    const view = params.get("view") || "all";
+
+  const [searchTerm, setSearchTerm] = useState("");
+  const [searchInput, setSearchInput] = useState("");
+  const [searchWarn, setSearchWarn] = useState<string | null>(null);
 
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -43,7 +48,7 @@ function ScansContent() {
     try {
       const url = view === "deleted"
         ? `/api/daraz/scan-manage?view=deleted${scanType ? `&scanType=${scanType}` : ""}`
-        : `/api/daraz/scan-manage?scanType=${scanType}&view=${view}${view === "today" ? "&date=today" : ""}`;
+        : `/api/daraz/scan-manage?scanType=${scanType}&view=${view}${view === "today" ? "&date=today" : ""}${searchTerm ? `&search=${encodeURIComponent(searchTerm)}` : ""}`;
       const res = await fetch(url);
       const data = await res.json();
       setScans(Array.isArray(data.scans) ? data.scans : []);
@@ -57,7 +62,7 @@ function ScansContent() {
     fetch("/api/auth/session").then(r => r.json()).then(d => setRole((d?.user as any)?.role || ""));
   }, []);
 
-  useEffect(() => { fetchScans(); }, [scanType, view]);
+  useEffect(() => { fetchScans(); }, [scanType, view, searchTerm]);
 
   const isAdmin = role === "ADMIN";
 
@@ -86,6 +91,29 @@ function ScansContent() {
     });
     await fetchScans();
     setBusy(null);
+  };
+
+    const runSearch = () => {
+    const raw = searchInput.trim();
+    if (!raw) { setSearchWarn(null); setSearchTerm(""); return; }
+    if (looksLikeQrOrAddress(raw)) {
+      setSearchWarn("This looks like a QR/address scan, not a barcode. Scan the TRACKING barcode only.");
+      return;
+    }
+    const v = validateTracking(raw);
+    if (!v.valid) {
+      setSearchWarn("Tracking number invalid");
+      return;
+    }
+    setSearchWarn(null);
+    setSearchInput(v.cleaned);
+    setSearchTerm(v.cleaned);
+  };
+
+  const clearSearch = () => {
+    setSearchInput("");
+    setSearchTerm("");
+    setSearchWarn(null);
   };
 
   const setView = (v: string) => {
@@ -117,6 +145,41 @@ function ScansContent() {
             {t}
           </button>
         ))}
+      </div>
+
+            {/* Tracking search (barcode scan or type; whole DB) */}
+      <div className="space-y-2">
+        <div className="flex gap-2">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-2.5 w-4 h-4 text-gray-500" />
+            <input
+              type="text"
+              value={searchInput}
+              onChange={(e) => setSearchInput(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && runSearch()}
+              placeholder="Scan or type tracking number..."
+              className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-10 pr-4 py-2 text-white text-sm focus:outline-none focus:border-amber-500"
+              autoFocus
+            />
+          </div>
+          <button onClick={runSearch} className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-sm font-medium">
+            Search
+          </button>
+          {searchTerm && (
+            <button onClick={clearSearch} className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-gray-300 rounded-lg text-sm">
+              Clear
+            </button>
+          )}
+        </div>
+        {searchWarn && (
+          <div className="flex items-start gap-2 bg-red-500/10 border border-red-500/30 rounded-lg p-3 max-w-md">
+            <AlertOctagon className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+            <p className="text-red-400 text-xs">{searchWarn}</p>
+          </div>
+        )}
+        {searchTerm && !searchWarn && (
+          <p className="text-gray-500 text-xs">Showing results for: <span className="text-white font-mono">{searchTerm}</span></p>
+        )}
       </div>
 
       {/* View filter */}
