@@ -31,12 +31,26 @@ export async function GET(req: NextRequest) {
   try {
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
-    const orderId = req.nextUrl.searchParams.get("orderId");
-    const storeId = req.nextUrl.searchParams.get("store");
+    let orderId = req.nextUrl.searchParams.get("orderId");
+    let storeId = req.nextUrl.searchParams.get("store");
+    const tracking = req.nextUrl.searchParams.get("tracking");
 
-    if (!orderId) return NextResponse.json({ error: "orderId required" }, { status: 400 });
+    if (!orderId && tracking) {
+      const item = await prisma.darazOrderItem.findFirst({
+        where: { trackingNo: tracking },
+        select: { darazOrderId: true, storeId: true },
+      });
+      if (item) {
+        orderId = item.darazOrderId;
+        if (!storeId) storeId = item.storeId;
+      } else {
+        return NextResponse.json({ success: false, items: [], error: "No order found for this tracking number" });
+      }
+    }
 
-    // store decide: param à¤­à¤ à¤¤à¥à¤¯à¤¹à¥€, à¤¨à¤¤à¥à¤° à¤¸à¤¬à¥ˆ active store à¤®à¤¾ à¤–à¥‹à¤œà¥à¤¨à¥‡
+    if (!orderId) return NextResponse.json({ error: "orderId or tracking required" }, { status: 400 });
+
+    // store decide: param ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â­ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¤ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¯ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¹ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬, ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¨ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¤ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â° ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¬ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€¹Ã¢â‚¬Â  active store ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â®ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¹ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€¦Ã¢â‚¬Å“ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¨ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¡
     let stores;
     if (storeId) {
       stores = await prisma.darazStore.findMany({

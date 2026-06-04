@@ -38,7 +38,7 @@ function ScansContent() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [searchWarn, setSearchWarn] = useState<string | null>(null);
-  const [popupOrder, setPopupOrder] = useState<{ orderId: string; storeId: string | null } | null>(null);
+  const [popupOrder, setPopupOrder] = useState<{ orderId: string | null; tracking: string | null; storeId: string | null } | null>(null);
 
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -210,12 +210,12 @@ function ScansContent() {
                 <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     {s.wrongStore && <span className="text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded">WRONG STORE</span>}
-                    {s.darazOrderId ? (
-                      <button onClick={() => setPopupOrder({ orderId: s.darazOrderId!, storeId: s.storeId })} className="text-blue-400 hover:text-blue-300 hover:underline font-mono text-sm">
+                    {s.trackingNo || s.darazOrderId ? (
+                      <button onClick={() => setPopupOrder({ orderId: s.darazOrderId, tracking: s.trackingNo, storeId: s.storeId })} className="text-blue-400 hover:text-blue-300 hover:underline font-mono text-sm">
                         {s.trackingNo || "(no tracking)"}
                       </button>
                     ) : (
-                      <span className="text-white font-mono text-sm">{s.trackingNo || "(no tracking)"}</span>
+                      <span className="text-white font-mono text-sm">(no tracking)</span>
                     )}
                     {s.itemName && <span className="text-gray-400 text-xs truncate">{s.itemName}</span>}
                   </div>
@@ -259,6 +259,7 @@ function ScansContent() {
       {popupOrder && (
         <OrderDetailPopup
           orderId={popupOrder.orderId}
+          tracking={popupOrder.tracking}
           storeId={popupOrder.storeId}
           onClose={() => setPopupOrder(null)}
         />

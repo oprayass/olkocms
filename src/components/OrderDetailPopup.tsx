@@ -17,11 +17,12 @@ interface OrderItem {
 
 interface Props {
   orderId: string | null;
+  tracking?: string | null;
   storeId?: string | null;
   onClose: () => void;
 }
 
-export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
+export default function OrderDetailPopup({ orderId, tracking, storeId, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [storeName, setStoreName] = useState("");
@@ -29,11 +30,13 @@ export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId && !tracking) return;
     setLoading(true);
     setError("");
     setItems([]);
-    const url = `/api/daraz/order-detail?orderId=${orderId}${storeId ? `&store=${storeId}` : ""}`;
+    const url = orderId
+      ? `/api/daraz/order-detail?orderId=${orderId}${storeId ? `&store=${storeId}` : ""}`
+      : `/api/daraz/order-detail?tracking=${encodeURIComponent(tracking!)}${storeId ? `&store=${storeId}` : ""}`;
     fetch(url)
       .then((r) => r.json())
       .then((data) => {
@@ -47,9 +50,9 @@ export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
       })
       .catch(() => setError("Failed to load details"))
       .finally(() => setLoading(false));
-  }, [orderId, storeId]);
+  }, [orderId, tracking, storeId]);
 
-  if (!orderId) return null;
+  if (!orderId && !tracking) return null;
 
   return (
     <div
