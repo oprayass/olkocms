@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { AlertTriangle, RefreshCw, CheckCircle, Play, X, Package, User, Store, Hash, TrendingUp } from "lucide-react";
+import { nepalPeriodRange } from "@/lib/nepalTime";
 
 interface OrderDetails {
   darazOrderId: string;
@@ -52,34 +53,10 @@ const DATE_FILTERS = [
 ];
 
 function getDateRange(filter: string): { from: Date | null; to: Date | null; lostOnly: boolean } {
-  const now = new Date();
   if (filter === "lost") return { from: null, to: null, lostOnly: true };
   if (filter === "all") return { from: null, to: null, lostOnly: false };
-  const start = new Date(); start.setHours(0, 0, 0, 0);
-  const end = new Date(); end.setHours(23, 59, 59, 999);
-  if (filter === "today") return { from: start, to: end, lostOnly: false };
-  if (filter === "yesterday") {
-    const f = new Date(start); f.setDate(f.getDate() - 1);
-    const t = new Date(end); t.setDate(t.getDate() - 1);
-    return { from: f, to: t, lostOnly: false };
-  }
-  if (filter === "this_week") {
-    const f = new Date(start); f.setDate(f.getDate() - now.getDay());
-    return { from: f, to: end, lostOnly: false };
-  }
-  if (filter === "last_week") {
-    const f = new Date(start); f.setDate(f.getDate() - now.getDay() - 7);
-    const t = new Date(start); t.setDate(t.getDate() - now.getDay() - 1); t.setHours(23,59,59,999);
-    return { from: f, to: t, lostOnly: false };
-  }
-  if (filter === "this_month") {
-    return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: end, lostOnly: false };
-  }
-  if (filter === "last_month") {
-    const f = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-    const t = new Date(now.getFullYear(), now.getMonth(), 0, 23, 59, 59, 999);
-    return { from: f, to: t, lostOnly: false };
-  }
+  const { from, to } = nepalPeriodRange(filter);
+  if (from && to) return { from, to, lostOnly: false };
   return { from: null, to: null, lostOnly: false };
 }
 

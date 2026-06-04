@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { nepalTodayStartUTC } from "@/lib/nepalTime";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 
 export async function GET() {
   try {
-    const todayStart = new Date();
-    todayStart.setHours(0, 0, 0, 0);
+  const todayStart = nepalTodayStartUTC();
     const [todayCount, totalCount, wrongStoreCount, recentScans] = await Promise.all([
       prisma.darazScan.count({ where: { scanType: "inbound", deleted: false, createdAt: { gte: todayStart } } }),
       prisma.darazScan.count({ where: { scanType: "inbound", deleted: false } }),

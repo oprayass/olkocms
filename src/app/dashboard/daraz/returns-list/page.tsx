@@ -3,6 +3,7 @@ import { useState, useEffect } from "react";
 import { RefreshCw, Search, RotateCcw } from "lucide-react";
 import OrderDetailPopup from "@/components/OrderDetailPopup";
 import ClaimEditPopup from "@/components/ClaimEditPopup";
+import { nepalPeriodRange } from "@/lib/nepalTime";
 
 interface Claim {
   id: string;
@@ -39,37 +40,6 @@ const typeColors: Record<string, string> = {
   failed_delivery: "bg-red-900 text-red-300",
 };
 
-function startOf(period: string): { from: Date | null; to: Date | null } {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const day = today.getDay(); // 0 = Sun
-  const mondayOffset = day === 0 ? 6 : day - 1;
-  switch (period) {
-    case "today":
-      return { from: today, to: new Date(today.getTime() + 86400000) };
-    case "yesterday":
-      return { from: new Date(today.getTime() - 86400000), to: today };
-    case "this_week": {
-      const f = new Date(today.getTime() - mondayOffset * 86400000);
-      return { from: f, to: new Date(f.getTime() + 7 * 86400000) };
-    }
-    case "last_week": {
-      const tEnd = new Date(today.getTime() - mondayOffset * 86400000);
-      const f = new Date(tEnd.getTime() - 7 * 86400000);
-      return { from: f, to: tEnd };
-    }
-    case "this_month":
-      return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: new Date(now.getFullYear(), now.getMonth() + 1, 1) };
-    case "last_month":
-      return { from: new Date(now.getFullYear(), now.getMonth() - 1, 1), to: new Date(now.getFullYear(), now.getMonth(), 1) };
-    case "this_year":
-      return { from: new Date(now.getFullYear(), 0, 1), to: new Date(now.getFullYear() + 1, 0, 1) };
-    case "last_year":
-      return { from: new Date(now.getFullYear() - 1, 0, 1), to: new Date(now.getFullYear(), 0, 1) };
-    default:
-      return { from: null, to: null };
-  }
-}
 
 export default function ReturnsListPage() {
   const [claims, setClaims] = useState<Claim[]>([]);
@@ -142,7 +112,7 @@ export default function ReturnsListPage() {
       if (customFrom) matchDate = matchDate && created >= new Date(customFrom);
       if (customTo) matchDate = matchDate && created < new Date(new Date(customTo).getTime() + 86400000);
     } else if (period !== "all") {
-      const { from, to } = startOf(period);
+      const { from, to } = nepalPeriodRange(period);
       if (from && to) matchDate = created >= from && created < to;
     }
     return matchSearch && matchStore && matchType && matchDate;
@@ -303,7 +273,7 @@ export default function ReturnsListPage() {
                         } hover:opacity-80`}
                       >
                         {c.claimStatus}
-                        {c.receivedAmount != null ? ` · Rs ${c.receivedAmount.toLocaleString()}` : ""}
+                        {c.receivedAmount != null ? ` Ãƒâ€šÃ‚Â· Rs ${c.receivedAmount.toLocaleString()}` : ""}
                       </button>
                     </td>
                   </tr>

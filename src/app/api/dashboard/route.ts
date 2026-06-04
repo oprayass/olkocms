@@ -1,10 +1,10 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { nepalTodayStartUTC } from '@/lib/nepalTime'
 
 export async function GET() {
   try {
-    const today = new Date()
-    today.setHours(0, 0, 0, 0)
+    const today = nepalTodayStartUTC()
 
     const [
       totalOrders,
