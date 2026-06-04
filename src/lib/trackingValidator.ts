@@ -10,6 +10,22 @@ const VALID_PATTERNS = [
 
 // भविष्यमा नयाँ courier आए यहाँ pattern थप्न सकिन्छ
 
+// QR / address detector. A real barcode tracking is a short, separator-free
+// alphanumeric token. A QR scan returns the shipping ADDRESS: long text with
+// spaces, commas, slashes, Devanagari, or other punctuation. This is used to
+// HARD-block Force Add so a mis-scanned QR can never enter as a tracking,
+// while still letting a genuinely new courier format through Force Add.
+export function looksLikeQrOrAddress(input: string | null | undefined): boolean {
+  if (!input) return false;
+  const s = input.trim();
+  if (/\s/.test(s)) return true;            // any whitespace
+  if (/[,/\\;:|]/.test(s)) return true;      // address punctuation
+  if (/[^\x00-\x7F]/.test(s)) return true;   // non-ASCII (e.g. Devanagari address)
+  if (s.length > 25) return true;            // longer than any real tracking
+  if (!/[A-Za-z0-9]/.test(s)) return true;   // no alphanumeric at all
+  return false;
+}
+
 export interface TrackingValidation {
   valid: boolean;
   cleaned: string;
