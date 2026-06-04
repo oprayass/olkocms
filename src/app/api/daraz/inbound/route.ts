@@ -7,7 +7,6 @@ export async function GET() {
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-
     const [todayCount, totalCount, wrongStoreCount, recentScans] = await Promise.all([
       prisma.darazScan.count({ where: { scanType: "inbound", deleted: false, createdAt: { gte: todayStart } } }),
       prisma.darazScan.count({ where: { scanType: "inbound", deleted: false } }),
@@ -19,7 +18,6 @@ export async function GET() {
         select: { id: true, trackingNo: true, createdAt: true, scannedBy: true, wrongStore: true, storeId: true, itemName: true },
       }),
     ]);
-
     return NextResponse.json({ todayCount, totalCount, wrongStoreCount, recentScans });
   } catch (err) {
     return NextResponse.json({ error: "Failed to fetch stats: " + String(err).substring(0, 120) }, { status: 500 });
@@ -30,10 +28,18 @@ export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
     const scannedBy = session?.user?.name || session?.user?.email || "unknown";
-    const { trackingNo, force } = await req.json();
+    const body = await req.json();
+    const force = body.force;
+    // Normalize tracking: scans may arrive as PND/NP/... (slash) but Daraz stores
+    // PND-NP-... (dash). Convert all slashes to dashes so they match. DEX/UPA have
+    // no separators and are unaffected.
+    const trackingNo =
+      typeof body.trackingNo === "string"
+        ? body.trackingNo.replace(/\//g, "-").trim()
+        : body.trackingNo;
     if (!trackingNo) return NextResponse.json({ error: "Tracking number required" }, { status: 400 });
 
-    // Duplicate check — यो trackingNo पहिले inbound scan भएको छ?
+    // Duplicate check: has this trackingNo already been inbound-scanned?
     const existing = await prisma.darazScan.findFirst({
       where: { trackingNo, scanType: "inbound" },
       orderBy: { createdAt: "desc" },
@@ -52,20 +58,17 @@ export async function POST(req: NextRequest) {
     if (existing && force) {
       await prisma.darazScan.delete({ where: { id: existing.id } });
     }
-
-    // Wrong-store detection — यो tracking हाम्रो कुनै DarazClaim (Daraz returns) मा छ?
+    // Wrong-store detection: is this tracking in any of our DarazClaim (Daraz returns)?
     const claim = await prisma.darazClaim.findFirst({
       where: { trackingNo },
       select: { storeId: true, itemName: true, customerName: true, darazOrderId: true, price: true },
     });
-
-    const wrongStore = !claim; // हाम्रो कुनै store मा भेटिएन → wrong/unknown
+    const wrongStore = !claim; // not found in any of our stores -> wrong/unknown
     let storeName: string | null = null;
     if (claim?.storeId) {
       const store = await prisma.darazStore.findUnique({ where: { id: claim.storeId }, select: { storeName: true } });
       storeName = store?.storeName || null;
     }
-
     const scan = await prisma.darazScan.create({
       data: {
         trackingNo,
@@ -79,7 +82,6 @@ export async function POST(req: NextRequest) {
         price: claim?.price || null,
       },
     });
-
     return NextResponse.json({
       success: true,
       scan,

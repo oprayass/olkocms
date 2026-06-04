@@ -7,7 +7,6 @@ export async function GET() {
   try {
     const todayStart = new Date();
     todayStart.setHours(0, 0, 0, 0);
-
     const [todayCount, totalCount, recentScans] = await Promise.all([
       prisma.darazScan.count({
         where: { scanType: "outbound", deleted: false, createdAt: { gte: todayStart } },
@@ -20,7 +19,6 @@ export async function GET() {
         select: { id: true, trackingNo: true, createdAt: true, scannedBy: true },
       }),
     ]);
-
     return NextResponse.json({ todayCount, totalCount, recentScans });
   } catch {
     return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500 });
@@ -30,16 +28,23 @@ export async function GET() {
 export async function POST(req: NextRequest) {
   try {
     const session = await getServerSession(authOptions);
-    const { trackingNo, force } = await req.json();
+    const body = await req.json();
+    const force = body.force;
+    // Normalize tracking: scans may arrive as PND/NP/... (slash) but Daraz stores
+    // PND-NP-... (dash). Convert all slashes to dashes so they match. DEX/UPA have
+    // no separators and are unaffected.
+    const trackingNo =
+      typeof body.trackingNo === "string"
+        ? body.trackingNo.replace(/\//g, "-").trim()
+        : body.trackingNo;
     if (!trackingNo) return NextResponse.json({ error: "Tracking number required" }, { status: 400 });
 
-    // Duplicate check — यो trackingNo पहिले outbound scan भएको छ?
+    // Duplicate check: has this trackingNo already been outbound-scanned?
     const existing = await prisma.darazScan.findFirst({
       where: { trackingNo, scanType: "outbound" },
       orderBy: { createdAt: "desc" },
     });
-
-    // पहिले scan भएको छ र force=true छैन → duplicate alert फर्काउने (save नगरी)
+    // Already scanned and force=false -> return duplicate info (do not save).
     if (existing && !force) {
       return NextResponse.json({
         duplicate: true,
@@ -51,12 +56,10 @@ export async function POST(req: NextRequest) {
         },
       });
     }
-
-    // force=true → पुरानो delete गरेर नयाँ बनाउने
+    // force=true -> delete the old one and create a new scan.
     if (existing && force) {
       await prisma.darazScan.delete({ where: { id: existing.id } });
     }
-
     const scan = await prisma.darazScan.create({
       data: {
         trackingNo,
