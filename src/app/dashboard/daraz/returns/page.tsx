@@ -1,7 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { RotateCcw, CheckCircle, AlertTriangle, Clock, AlertOctagon } from "lucide-react";
-import { validateTracking } from "@/lib/trackingValidator";
+import { validateTracking, looksLikeQrOrAddress } from "@/lib/trackingValidator";
 import Link from "next/link";
 
 interface DupInfo {
@@ -94,6 +94,11 @@ export default function ReturnsScanPage() {
   };
   const forceAdd = () => {
     if (!trackingNo.trim() || loading) return;
+    // Force Add bypasses the known-format check, but NEVER a QR/address scan.
+    if (looksLikeQrOrAddress(trackingNo)) {
+      setInvalidWarn("This looks like a QR/address scan, not a barcode. Scan the TRACKING barcode only.");
+      return;
+    }
     setInvalidWarn(null);
     doScan(trackingNo.trim().toUpperCase(), false);
   };
