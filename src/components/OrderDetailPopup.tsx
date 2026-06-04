@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { X, Package, Truck, Loader2 } from "lucide-react";
+import ZoomableImage from "@/components/ZoomableImage";
 
 interface OrderItem {
   name: string;
@@ -97,7 +98,7 @@ export default function OrderDetailPopup({ orderId, tracking, storeId, onClose }
                 <div key={i} className="bg-gray-850 border border-gray-800 rounded-lg p-4">
                   <div className="flex gap-4">
                     {it.productImage ? (
-                      <img src={it.productImage} alt="" className="w-16 h-16 rounded object-cover border border-gray-700" />
+                      <ZoomableImage src={it.productImage} className="w-16 h-16 rounded object-cover border border-gray-700" />
                     ) : (
                       <div className="w-16 h-16 rounded bg-gray-800 flex items-center justify-center">
                         <Package className="w-6 h-6 text-gray-600" />
