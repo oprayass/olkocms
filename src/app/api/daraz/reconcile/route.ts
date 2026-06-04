@@ -115,6 +115,12 @@ export async function POST(req: NextRequest) {
         skipped++;
         continue;
       }
+      // Matched an item but status not yet populated (fresh/incomplete fetch).
+      // Not a real "not delivered" -> skip; a later run with a real status decides.
+      if (hasMatch && !status) {
+        skipped++;
+        continue;
+      }
 
       const alertKey = scan.trackingNo ?? scan.darazOrderId ?? scan.id;
       if (await alertExists("outbound_not_delivered", alertKey)) {
