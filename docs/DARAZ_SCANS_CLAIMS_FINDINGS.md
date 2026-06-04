@@ -76,3 +76,22 @@ A scanned return tracking matches a `DarazOrderItem` where:
 ## Store cuids (verified)
 yagyapremiums `cmprwajvg0000mqyvdz6wtw98` Ãƒâ€šÃ‚Â· budgetdealsnepal `cmprxpxqy0000jmafgoe2cxxd` Ãƒâ€šÃ‚Â· blackdragonnepal `cmprxw8jg0001jmafa97cnedj` Ãƒâ€šÃ‚Â· dealmeonsnepal `cmpry2jil0002jmafz062s19p` Ãƒâ€šÃ‚Â· firstdrop79 `cmpry6t130003jmafp262sgzp` Ãƒâ€šÃ‚Â· gadgetfinder2020 `cmpryagir0004jmafkp9sqkp6` Ãƒâ€šÃ‚Â· gadgetsfindernepal `cmpryeoep0005jmafjrgbrb2p` Ãƒâ€šÃ‚Â· selfcarenepa `cmpryj9pm0006jmafim0lj9c5` Ãƒâ€šÃ‚Â· tb200247 `cmprymwy00007jmaf9z110uiy`.
 (Note: a Yagya cuid `cmprymwy0...` also appeared for tb200247 in one chat vs `cmprwajvg...` for yagya in another ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Â the latter is from the live delivered-order test, treat it as authoritative for yagyapremiums.)
+## UPDATE 2026-06-04 (commits 853890e -> c61a08d): alerts resolve + tracking-capture + PND normalize
+
+### Alerts page (resolve management)
+- **Per-alert checkbox** + **bulk "Select all" / "Resolve N selected"** added to `/dashboard/daraz/alerts`. Clears the large old backlog in one action.
+- **Outbound alert card shows the scan date** ("Scanned M/D/YYYY"), parsed from the alert notes ("... on <date>") or scan-derived orderDate.
+- **Sticky resolve (dedupe fix):** `alertExists()` in reconcile + cron now matches `notes contains alertKey` with NO status filter (previously `status: { not: "resolved" }`), so a resolved/lost alert counts as existing and is NOT re-created on the next run. The offset-0 stale-clear only touches `status in ["unresolved","investigating"]` -> NEVER deletes resolved/lost. Result: once resolved, an alert stays resolved across reconcile/cron.
+- `/api/daraz/alerts` PATCH now accepts BOTH single `{ id, status }` and bulk `{ ids: string[], status }` (uses updateMany for bulk).
+
+### Outbound alert logic (the real meaning) - decided 2026-06-04
+Outbound alert = "scanned out from our store (outbound scan) but Daraz does NOT yet show transit_to_ship/shipped". Daraz Order History stage order: Delivery Order Create -> Handled By Seller -> Packed -> Ready To Ship -> Ready To Ship Pending -> Transit To Ship -> Shipped -> Delivered.
+- Match the outbound scan against central **DarazOrderItem** FIRST by tracking (tracking lives there, NOT in DarazOrder), then fall back to DarazOrder by orderId for status.
+- `DELIVERED_OR_DONE` (NO alert): delivered, shipped, transit_to_ship, shipped_back, shipped_back_success, failed_delivery, returned, canceled, cancelled.
+- ALERT when: match found but status is ready_to_ship/packed/pending (scanned but not handed to courier yet) OR no match at all (status unknown - "went out but Daraz does not show it"). User confirmed: match-fail SHOULD alert; old backlog is cleared by bulk-resolve (which now sticks).
+- `failed_delivery` is NOT an outbound alert (parcel reached courier, customer refused -> return-side `return_not_received` handles it). `failed_delivery` + `shipped_back_success` were added to DELIVERED_OR_DONE so they no longer appear as outbound alerts.
+
+### PND tracking slash vs dash (normalize)
+- Daraz stores PND tracking as `PND-NP-000718204` (DASH). Scanners read it as `PND/NP/000722689` (SLASH). DEX/UPA have no separators.
+- Fix: on scan save (outbound + inbound POST), `trackingNo = body.trackingNo.replace(/\//g,"-").trim()` -> all slashes become dashes so scan matches Daraz. One-time backfill route (now deleted) rewrote 5 existing slash rows (4 real PND + 1 junk row that had a whole comma-line in trackingNo).
+- Outbound/inbound route Nepali comments were converted to English (they had become mojibake) to prevent future corruption.

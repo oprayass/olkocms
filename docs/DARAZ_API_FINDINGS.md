@@ -112,3 +112,20 @@ Added after DarazOrder, before ActivityLog; `npx prisma db push`.
 2. Nightly cron 8 PM NPT (= 14:15 UTC), `CRON_SECRET`, TARGETED (only items on Outbound/Inbound/Alerts pages): targeted fetch → resolve-scans → reconcile. Use `TradeOrderLineCreatedTimeRange` for incremental (recent windows only, not all 181).
 3. Reconcile: run AFTER resolve; add `deleted:false` filter.
 4. Token refresh job so store access_tokens don't silently expire. Cleanup debug routes + unused Orders-page handlers.
+
+## UPDATE 2026-06-04: tracking capture into central DB + Sync 6-step + PND format
+
+### KEY FINDING - tracking is only on shipped-stage items, Daraz REMOVES it after delivery
+- Tracking (`tracking_code`) lives ONLY in `/order/items/get` -> `DarazOrderItem.trackingNo`. `/orders/get` never returns it (confirmed: all 1399 DarazOrder rows had trackingNo null).
+- **Daraz drops `tracking_code` once the order is delivered.** A shipped order (e.g. 215687775239258) returns `tracking_code: DEXNP025726135`; a delivered order (215673152249477) returns the item with status `delivered` but NO tracking_code. So tracking MUST be captured while the order is still ready_to_ship/packed/shipped - if you only run fill-tracking after delivery, tracking is already gone.
+- Root cause of the "Unknown / Order: unknown" outbound alert flood: outbound scans carry tracking, but the matching order's tracking was never captured into DarazOrderItem (Sync had no fill-tracking step), AND reconcile was matching against DarazOrder.trackingNo (always null) instead of DarazOrderItem.trackingNo.
+
+### Fixes (commits 853890e, a7cf953, 4d6392f, c61a08d)
+- **Sync is now 6-step** (orders page): 1 orders/fetch -> 2 fill-tracking (recentOnly) -> 3 refresh-status -> 4 fill-delivered-dates -> 5 resolve-scans -> 6 reconcile.
+- **`fill-tracking` got a `recentOnly` flag**: when `{ recentOnly: true }`, it only walks DarazOrder with status in [ready_to_ship, packed, shipped, pending] (ordered by orderDate desc), so Sync/cron stay under Vercel 10s. Without the flag it walks ALL orders (manual backfill).
+- **Nightly cron** added Step 1b: same targeted fill-tracking (top 120 ship-stage orders) between fetch and refresh-status. Reports `step1b_fillTracking`.
+- **reconcile + cron outbound match** now hits `DarazOrderItem` by tracking FIRST (then DarazOrderId), NOT DarazOrder. DarazOrder is only a status fallback.
+- **PND tracking format**: Daraz = `PND-NP-000718204` (dash); scanners read `PND/NP/...` (slash). Scan save now converts `/` -> `-`. DEX/UPA have no separators.
+
+### Sync step bands (orders page progress bar)
+1/6 fetch (0-20) -> 2/6 fill-tracking (20-25) -> 3/6 refresh-status (25-45) -> 4/6 fill-delivered (45-70) -> 5/6 resolve-scans (70-78) -> 6/6 reconcile (78-100).
