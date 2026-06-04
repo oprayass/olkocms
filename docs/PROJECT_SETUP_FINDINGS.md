@@ -96,3 +96,32 @@ npm run build 2>&1 | Select-String -Pattern "Failed|Compiled successfully|error"
 # ship
 git add . ; git commit -m "..." ; git push
 ```
+## Nepal-time (NPT) date filters - shared helper (added 2026-06-05)
+- Vercel runs in UTC. NEVER compute calendar boundaries with raw `new Date(); setHours(0,0,0,0)` - at night that returns the WRONG day in Nepal (UTC+5:45).
+- Use `src/lib/nepalTime.ts`: `nepalTodayStartUTC()` for "today" start, `nepalPeriodRange(period)` for today/yesterday/this_week/last_week/this_month/last_month/2_months_ago/3_months_ago/this_year/last_year. Both return real UTC instants computed on NPT wall-clock, safe to compare against stored UTC timestamps.
+- Rolling windows (last-30-days purge, twoMonthsAgo lost cutoff, billing periods) are NPT-irrelevant - leave as plain Date math, do NOT route through the helper.
+- VERIFY GOTCHA: when replacing `setHours(0,0,0,0)` with the helper, confirm the USE line changed, not just the import - a heredoc/CRLF mismatch can land the import while leaving the old UTC line, so the bug ships silently. Always Select-String the actual usage.
+
+## Reusable UI: ZoomableImage (added 2026-06-05)
+- `src/components/ZoomableImage.tsx` - `<ZoomableImage src={url} className="..." />`. Click -> full-screen overlay (z-[70]), click overlay -> close. stopPropagation so it works inside other click-through popups.
+- Use for ANY product-image display (already in OrderDetailPopup + alerts popup) to get click-to-expand for free.
+
+## Nepal-time (NPT) date filters - shared helper (added 2026-06-05)
+- Vercel runs in UTC. NEVER compute calendar boundaries with raw `new Date(); setHours(0,0,0,0)` - at night that returns the WRONG day in Nepal (UTC+5:45).
+- Use `src/lib/nepalTime.ts`: `nepalTodayStartUTC()` for "today" start, `nepalPeriodRange(period)` for today/yesterday/this_week/last_week/this_month/last_month/2_months_ago/3_months_ago/this_year/last_year. Both return real UTC instants computed on NPT wall-clock, safe to compare against stored UTC timestamps.
+- Rolling windows (last-30-days purge, twoMonthsAgo lost cutoff, billing periods) are NPT-irrelevant - leave as plain Date math, do NOT route through the helper.
+- VERIFY GOTCHA: when replacing `setHours(0,0,0,0)` with the helper, confirm the USE line changed, not just the import - a heredoc/CRLF mismatch can land the import while leaving the old UTC line, so the bug ships silently. Always Select-String the actual usage.
+
+## Reusable UI: ZoomableImage (added 2026-06-05)
+- `src/components/ZoomableImage.tsx` - `<ZoomableImage src={url} className="..." />`. Click -> full-screen overlay (z-[70]), click overlay -> close. stopPropagation so it works inside other click-through popups.
+- Use for ANY product-image display (already in OrderDetailPopup + alerts popup) to get click-to-expand for free.
+
+## Nepal-time (NPT) date filters - shared helper (added 2026-06-05)
+- Vercel runs in UTC. NEVER compute calendar boundaries with raw `new Date(); setHours(0,0,0,0)` - at night that returns the WRONG day in Nepal (UTC+5:45).
+- Use `src/lib/nepalTime.ts`: `nepalTodayStartUTC()` for "today" start, `nepalPeriodRange(period)` for today/yesterday/this_week/last_week/this_month/last_month/2_months_ago/3_months_ago/this_year/last_year. Both return real UTC instants computed on NPT wall-clock, safe to compare against stored UTC timestamps.
+- Rolling windows (last-30-days purge, twoMonthsAgo lost cutoff, billing periods) are NPT-irrelevant - leave as plain Date math, do NOT route through the helper.
+- VERIFY GOTCHA: when replacing `setHours(0,0,0,0)` with the helper, confirm the USE line changed, not just the import - a heredoc/CRLF mismatch can land the import while leaving the old UTC line, so the bug ships silently. Always Select-String the actual usage.
+
+## Reusable UI: ZoomableImage (added 2026-06-05)
+- `src/components/ZoomableImage.tsx` - `<ZoomableImage src={url} className="..." />`. Click -> full-screen overlay (z-[70]), click overlay -> close. stopPropagation so it works inside other click-through popups.
+- Use for ANY product-image display (already in OrderDetailPopup + alerts popup) to get click-to-expand for free.

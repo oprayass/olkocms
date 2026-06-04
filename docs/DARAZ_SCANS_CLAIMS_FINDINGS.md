@@ -105,3 +105,34 @@ Outbound alert = "scanned out from our store (outbound scan) but Daraz does NOT 
 - Daraz shipping label: tracking is in the BARCODE, address is in the QR. Scanning the QR by mistake injects address text as a tracking -> junk scan.
 - trackingValidator.ts already accepts only 2 real patterns ([A-Z]{5}\d{9} like DEXNP/UPANP, and [A-Z]{3}-[A-Z]{2}-\d{9} like PND-NP-) and rejects comma/slash/space. Added `looksLikeQrOrAddress()`: flags whitespace, address punctuation (,/\;:|), non-ASCII (Devanagari), length > 25, or no-alphanumeric.
 - Force Add loophole fixed: outbound + returns pages' forceAdd() previously skipped validation entirely. Now forceAdd HARD-blocks anything looksLikeQrOrAddress() flags, so a mis-scanned QR can NEVER enter even via Force Add. A genuinely new courier (clean alphanumeric, unknown prefix) STILL passes via Force Add - no code edit needed per subscriber (chose this over hardcoding patterns or a DB-pattern table).
+
+---
+
+## UPDATE 2026-06-05 (Daraz Orders / Scans / Alerts UI polish + Nepal-time fix)
+
+### Nepal-time (NPT, UTC+5:45) date filters - NEW shared helper
+- ROOT BUG: Vercel runs in UTC. `new Date(); setHours(0,0,0,0)` gave UTC midnight, so at night (NPT 12am-5:45am) "Today" counts showed the PREVIOUS UTC day's scans. Confirmed on Outbound page: June 4 evening scans showed under "Today" at June 5 00:xx NPT.
+- FIX: new `src/lib/nepalTime.ts` exports `nepalTodayStartUTC()` (NPT midnight as a real UTC instant) and `nepalPeriodRange(period)` (today/yesterday/this_week/last_week/this_month/last_month/2_months_ago/3_months_ago/this_year/last_year -> {from,to} as UTC instants computed on NPT wall-clock). Strategy: shift now by +5:45, compute boundary on shifted date, shift result back -5:45.
+- Applied to: outbound/route.ts, inbound/route.ts, scan-manage/route.ts (today filter), dashboard/route.ts (today stats), orders/page.tsx + returns-list/page.tsx (startOf -> nepalPeriodRange), alerts/page.tsx (getDateRange -> nepalPeriodRange).
+- NOT touched (rolling windows, NPT-irrelevant): cron/nightly + reconcile twoMonthsAgo purge, scan-manage 30-day deleted purge, payments/subscriptions billing periods, reports relative dates.
+- GOTCHA: the outbound `setHours` line did NOT get replaced on first pass (heredoc/CRLF mismatch) - import landed but code stayed UTC, so the bug persisted after deploy. Always Select-String-verify the USE line, not just the import. Fixed with `-replace` regex `(?m)^\s*const todayStart = new Date\(\);\r?\n\s*todayStart\.setHours\(0, 0, 0, 0\);`.
+
+### Daraz Orders page - stat card adapts to status filter
+- orders/page.tsx: the "Delivered Revenue" card now reads the selected status filter. All Status -> Delivered Revenue (delivered total, unchanged default). Specific status -> "<Status> Value" = sum of that status's filtered orders (e.g. Pending Value, Canceled Value, To Ship Value). `cardValue` + `cardLabel` computed from `statusFilter`; works because `filtered` already has statusFilter applied.
+
+### Scans page - tracking search + clickable tracking + detail popup
+- scan-manage/route.ts GET: new `search` param -> `where.trackingNo = { contains: search.trim(), mode: "insensitive" }` (server-side, whole DB, not just loaded 500).
+- scans/page.tsx: search bar (type or scanner). Uses validateTracking + looksLikeQrOrAddress (@/lib/trackingValidator): QR/address -> "QR/address scan, scan barcode only"; invalid format -> "Tracking number invalid"; valid -> sets searchTerm -> refetch. `searchTerm` added to fetch URL (`&search=`) + useEffect deps.
+- Tracking number is now a clickable blue button -> opens OrderDetailPopup. Works for BOTH inbound (has darazOrderId) and outbound (darazOrderId often null - 332/500). For null-orderId scans the popup is opened by TRACKING.
+- order-detail/route.ts: now accepts `tracking` param. If no orderId, looks up DarazOrderItem by trackingNo (indexed) -> darazOrderId + storeId, then normal /order/items/get. Also now calls /orders/get for `created_at` (orderDate) and uses real `quantity` (was hardcoded 1).
+- OrderDetailPopup.tsx: accepts optional `tracking` prop; fetches by orderId else tracking. Now shows Qty + "Ordered: <date>".
+- TEXT-CORRUPTION INCIDENT: editing scans/page.tsx via clipboard round-trip corrupted Nepali/em-dash into mojibake (Inbound a EUR" Today's Scans, etc). Replaced ALL Nepali UI strings with ASCII English (delete confirm, "Scan records - delete, undo, and manage", "No scans found", header em-dash -> hyphen). Reconfirms PROJECT_SETUP rule: keep injected strings ASCII-only.
+
+### Alerts popup - product image/name, no raw notes, zoom
+- alerts/page.tsx DetailPopup: removed the raw `alert.notes` paragraph (ugly "outbound scanned but no delivery progress..." text). Added product image + name fetched from order-detail API on open (by orderDetails.darazOrderId/storeId).
+
+### Reusable ZoomableImage component - NEW
+- `src/components/ZoomableImage.tsx`: `<ZoomableImage src className />`. Click image -> full-screen black overlay (z-[70]), click overlay -> close. Used in OrderDetailPopup (scans/orders) and alerts DetailPopup. Use this for ANY future product-image display to get click-to-expand for free.
+
+### Commits (this session)
+dd39038 (status card) -> 2800b49/e8c64c4 (outbound NPT, 2nd was the real setHours fix) -> b6dfcf1 (all date filters NPT) -> 51167c8 (scans search) -> 6ecf842 (clickable tracking + popup qty/date) -> e8c64c4-era order-detail tracking lookup -> 0fed0d1 (notes removed) -> ac32a60 (alert product img/name) -> 4e1f469 (ZoomableImage everywhere).
