@@ -146,13 +146,6 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
             </div>
           )}
 
-          {/* Notes */}
-          {alert.notes && (
-            <div className="bg-gray-800/50 rounded-xl p-3">
-              <p className="text-gray-400 text-xs leading-relaxed">{alert.notes}</p>
-            </div>
-          )}
-
           <p className="text-gray-600 text-xs">{new Date(alert.createdAt).toLocaleString()}</p>
         </div>
 
