@@ -80,6 +80,7 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
 
   const [prodImage, setProdImage] = useState("");
   const [prodName, setProdName] = useState("");
+  const [imgZoom, setImgZoom] = useState(false);
   useEffect(() => {
     const oid = o?.darazOrderId || alert.darazOrderId;
     if (!oid) return;
@@ -96,6 +97,11 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
   }, [alert.id]);
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4" onClick={onClose}>
+      {imgZoom && prodImage && (
+        <div className="fixed inset-0 z-[60] bg-black/90 flex items-center justify-center p-4" onClick={(e) => { e.stopPropagation(); setImgZoom(false); }}>
+          <img src={prodImage} alt="" className="max-w-full max-h-full object-contain rounded-lg cursor-zoom-out" />
+        </div>
+      )}
       <div className="bg-gray-900 border border-gray-700 rounded-2xl w-full max-w-md shadow-2xl" onClick={(e) => e.stopPropagation()}>
         {/* Header */}
         <div className="flex items-start justify-between p-5 border-b border-gray-800">
@@ -112,7 +118,7 @@ function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
             </div>
             <div className="flex items-center gap-3 mt-1">
               {prodImage ? (
-                <img src={prodImage} alt="" className="w-12 h-12 rounded-lg object-cover border border-gray-700 shrink-0" />
+                <img src={prodImage} alt="" onClick={(e) => { e.stopPropagation(); setImgZoom(true); }} className="w-12 h-12 rounded-lg object-cover border border-gray-700 shrink-0 cursor-zoom-in hover:border-orange-500 transition-colors" />
               ) : (
                 <div className="w-12 h-12 rounded-lg bg-gray-800 flex items-center justify-center shrink-0">
                   <Package className="w-5 h-5 text-gray-600" />
