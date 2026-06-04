@@ -320,9 +320,19 @@ export default function DarazOrdersPage() {
     return new Date(b.orderDate || b.createdAt).getTime() - new Date(a.orderDate || a.createdAt).getTime();
   });
 
-  const totalRevenue = filtered
-    .filter((o) => o.status === "delivered")
-    .reduce((sum, o) => sum + o.price, 0);
+  // Stat card adapts to selected status filter.
+  // "All Status" => delivered revenue (default); any specific status => that status's total value.
+  const cardValue =
+    statusFilter === "all"
+      ? filtered.filter((o) => o.status === "delivered").reduce((sum, o) => sum + o.price, 0)
+      : filtered.reduce((sum, o) => sum + o.price, 0);
+
+  const cardLabel =
+    statusFilter === "all" || statusFilter === "delivered"
+      ? "Delivered Revenue"
+      : statusFilter === "to_ship"
+      ? "To Ship Value"
+      : statusFilter.charAt(0).toUpperCase() + statusFilter.slice(1).replace(/_/g, " ") + " Value";
 
   const statuses = Array.from(new Set(orders.map((o) => o.status)));
 
@@ -370,8 +380,8 @@ export default function DarazOrdersPage() {
           <p className="text-2xl font-bold text-white">{filtered.length}</p>
         </div>
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
-          <p className="text-gray-400 text-sm">Delivered Revenue</p>
-          <p className="text-2xl font-bold text-emerald-400">Rs {totalRevenue.toLocaleString()}</p>
+          <p className="text-gray-400 text-sm">{cardLabel}</p>
+          <p className="text-2xl font-bold text-emerald-400">Rs {cardValue.toLocaleString()}</p>
         </div>
         <div className="bg-gray-900 border border-gray-800 rounded-lg p-4">
           <p className="text-gray-400 text-sm">Connected Stores</p>
