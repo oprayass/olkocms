@@ -62,7 +62,7 @@ function ScansContent() {
   const isAdmin = role === "ADMIN";
 
   const deleteScan = async (id: string) => {
-    if (!confirm("à¤¯à¥‹ scan delete à¤—à¤°à¥à¤¨à¥‡? (Deleted folder à¤®à¤¾ à¤œà¤¾à¤¨à¥à¤›, 30 days à¤­à¤¿à¤¤à¥à¤° undo à¤—à¤°à¥à¤¨ à¤¸à¤•à¤¿à¤¨à¥à¤›)")) return;
+    if (!confirm("Delete this scan? (Moves to Deleted folder; can undo within 30 days)")) return;
     setBusy(id);
     const res = await fetch("/api/daraz/scan-manage", {
       method: "DELETE",
@@ -102,10 +102,10 @@ function ScansContent() {
         <Package className="w-6 h-6 text-amber-400" />
         <div>
           <h1 className="text-2xl font-bold text-white capitalize">
-            {scanType} â€” {VIEW_LABELS[view] || view}
+            {scanType} - {VIEW_LABELS[view] || view}
             <span className="ml-2 text-sm bg-gray-700 text-gray-300 px-2 py-0.5 rounded-full">{scans.length}</span>
           </h1>
-          <p className="text-gray-400 text-sm">Scan records â€” delete, undo, à¤° manage à¤—à¤°à¥à¤¨à¥à¤¹à¥‹à¤¸à¥</p>
+          <p className="text-gray-400 text-sm">Scan records - delete, undo, and manage</p>
         </div>
       </div>
 
@@ -135,7 +135,7 @@ function ScansContent() {
       ) : scans.length === 0 ? (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-8 text-center">
           <Package className="w-8 h-8 text-gray-600 mx-auto mb-2" />
-          <p className="text-gray-400 text-sm">à¤•à¥à¤¨à¥ˆ scan à¤›à¥ˆà¤¨</p>
+          <p className="text-gray-400 text-sm">No scans found</p>
         </div>
       ) : (
         <div className="space-y-2">
@@ -156,7 +156,7 @@ function ScansContent() {
                     <span>{new Date(s.createdAt).toLocaleString()}</span>
                   </div>
                   {s.deleted && (
-                    <p className="text-red-400 text-xs">ðŸ—‘ï¸ Deleted by {s.deletedBy} on {s.deletedAt ? new Date(s.deletedAt).toLocaleString() : ""}</p>
+                    <p className="text-red-400 text-xs">Deleted by {s.deletedBy} on {s.deletedAt ? new Date(s.deletedAt).toLocaleString() : ""}</p>
                   )}
                 </div>
                 <div className="shrink-0">
@@ -183,7 +183,7 @@ function ScansContent() {
       )}
 
       {!isAdmin && (
-        <p className="text-gray-600 text-xs">Delete/Undo permission à¤¸à¤¿à¤°à¥à¤« admin à¤¸à¤à¤— à¤›à¥¤</p>
+        <p className="text-gray-600 text-xs">Delete/Undo permission: admin only</p>
       )}
     </div>
   );
