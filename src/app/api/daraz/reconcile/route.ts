@@ -3,14 +3,6 @@ import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
 
-// Central-DB-first reconciliation. Runs AFTER resolve-scans (which attaches real
-// order data to scans and clears wrongStore on matched inbound scans).
-// Derives three DarazAlert types purely from central DarazOrderItem + DarazScan:
-//   A) outbound_not_delivered : outbound scan exists, but central shows no delivery progress.
-//   B) return_not_received     : central expects an inbound (customer return OR failed delivery), but no inbound scan.
-//   C) wrong_store             : inbound scan still flagged wrongStore (resolve-scans could not match).
-// All DarazScan reads filter deleted:false.
-
 const FAILED_STATUSES = ["shipped_back", "failed_delivery", "returned", "shipped_back_success"];
 const DELIVERED_OR_DONE = [
   "delivered",
@@ -22,12 +14,13 @@ const DELIVERED_OR_DONE = [
   "cancelled",
 ];
 
+// Counts an alert as existing in ANY status (incl. resolved/lost) so a resolved
+// alert is NOT be re-created on the next reconcile/cron run. (resolve must stick.)
 async function alertExists(alertType: string, alertKey: string) {
   const existing = await prisma.darazAlert.findFirst({
     where: {
       alertType,
       notes: { contains: alertKey },
-      status: { not: "resolved" },
     },
   });
   return !!existing;
@@ -48,9 +41,13 @@ export async function POST(req: NextRequest) {
 
 
     // offset 0: clear stale outbound alerts whose order is now delivered/done.
+    // Only touch still-open alerts; NEVER delete resolved/lost (keeps resolve sticky).
     if (offset === 0) {
       const stale = await prisma.darazAlert.findMany({
-        where: { alertType: "outbound_not_delivered" },
+        where: {
+          alertType: "outbound_not_delivered",
+          status: { in: ["unresolved", "investigating"] },
+        },
         select: { id: true, darazOrderId: true },
       });
       for (const a of stale) {
@@ -82,7 +79,6 @@ export async function POST(req: NextRequest) {
     });
 
     for (const scan of outboundScans) {
-      // Look up the order status in central DarazOrder (by tracking or orderId).
       const order = await prisma.darazOrder.findFirst({
         where: {
           OR: [
@@ -129,9 +125,6 @@ export async function POST(req: NextRequest) {
 
     // ---------- B) return_not_received + C) wrong_store (offset 0 only) ----------
     if (offset === 0) {
-      // Expected inbound from central DarazOrderItem:
-      //   (b1) customer return: whqcDecision return_to_merchant, has returnTrackingNo
-      //   (b2) failed delivery: status in FAILED_STATUSES, has trackingNo
       const expectedReturns = await prisma.darazOrderItem.findMany({
         where: {
           OR: [
@@ -142,8 +135,6 @@ export async function POST(req: NextRequest) {
       });
 
       for (const item of expectedReturns) {
-        // The tracking the warehouse would scan on inbound:
-        //   customer return -> returnTrackingNo ; failed delivery -> trackingNo
         const isMerchantReturn = item.whqcDecision === "return_to_merchant" && !!item.returnTrackingNo;
         const inboundTracking = isMerchantReturn ? item.returnTrackingNo : item.trackingNo;
         if (!inboundTracking) {
@@ -151,7 +142,6 @@ export async function POST(req: NextRequest) {
           continue;
         }
 
-        // Was it inbound-scanned? (deleted:false; match by the inbound tracking, or by orderId.)
         const inbound = await prisma.darazScan.findFirst({
           where: {
             deleted: false,
@@ -186,7 +176,6 @@ export async function POST(req: NextRequest) {
         created++;
       }
 
-      // C) wrong_store: inbound scans resolve-scans could not match.
       const wrongStoreScans = await prisma.darazScan.findMany({
         where: { deleted: false, scanType: "inbound", wrongStore: true },
       });

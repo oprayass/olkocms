@@ -83,6 +83,15 @@ function getDateRange(filter: string): { from: Date | null; to: Date | null; los
   return { from: null, to: null, lostOnly: false };
 }
 
+// Outbound scan date: parse from notes ("... on M/D/YYYY"), else scan-derived orderDate.
+function outboundScanDate(alert: Alert): string | null {
+  if (alert.alertType !== "outbound_not_delivered") return null;
+  const m = alert.notes?.match(/ on ([0-9]{1,2}\/[0-9]{1,2}\/[0-9]{2,4})/);
+  if (m) return m[1];
+  if (alert.orderDetails?.orderDate) return new Date(alert.orderDetails.orderDate).toLocaleDateString();
+  return null;
+}
+
 function DetailPopup({ alert, onClose, onUpdateStatus, updating }: {
   alert: Alert;
   onClose: () => void;
@@ -206,6 +215,8 @@ export default function AlertsPage() {
   const [reconciling, setReconciling] = useState(false);
   const [reconcileResult, setReconcileResult] = useState<{ created: number; skipped: number } | null>(null);
   const [selectedAlert, setSelectedAlert] = useState<Alert | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const fetchAlerts = async () => {
     setLoading(true);
@@ -261,6 +272,28 @@ export default function AlertsPage() {
     setUpdating(null);
   };
 
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const bulkResolve = async () => {
+    const ids = Array.from(selected);
+    if (ids.length === 0) return;
+    setBulkUpdating(true);
+    await fetch("/api/daraz/alerts", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ids, status: "resolved" }),
+    });
+    setSelected(new Set());
+    await fetchAlerts();
+    setBulkUpdating(false);
+  };
+
   const twoMonthsAgo = new Date();
   twoMonthsAgo.setMonth(twoMonthsAgo.getMonth() - 2);
 
@@ -276,6 +309,18 @@ export default function AlertsPage() {
     .filter((a) => statusFilter === "all" || a.status === statusFilter)
     .filter((a) => typeFilter === "all" || a.alertType === typeFilter)
     .filter(applyDateFilter);
+
+  const filteredIds = filtered.map((a) => a.id);
+  const allSelected = filteredIds.length > 0 && filteredIds.every((id) => selected.has(id));
+
+  const toggleSelectAll = () => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allSelected) { filteredIds.forEach((id) => next.delete(id)); }
+      else { filteredIds.forEach((id) => next.add(id)); }
+      return next;
+    });
+  };
 
   const activeCount = (s: string) => alerts.filter((a) => a.status === s).length;
   const unresolvedCount = activeCount("unresolved") + activeCount("lost");
@@ -368,6 +413,31 @@ export default function AlertsPage() {
         ))}
       </div>
 
+      {/* Bulk action bar */}
+      {!loading && filtered.length > 0 && (
+        <div className="flex items-center gap-3 flex-wrap bg-gray-900 border border-gray-800 rounded-xl px-4 py-2.5">
+          <label className="flex items-center gap-2 text-xs text-gray-300 cursor-pointer">
+            <input type="checkbox" checked={allSelected} onChange={toggleSelectAll}
+              className="w-4 h-4 accent-blue-500 cursor-pointer" />
+            Select all ({filtered.length})
+          </label>
+          <span className="text-xs text-gray-500">{selected.size} selected</span>
+          <div className="flex-1" />
+          {selected.size > 0 && (
+            <>
+              <button onClick={() => setSelected(new Set())}
+                className="px-3 py-1.5 text-xs text-gray-400 hover:text-white border border-gray-700 rounded-lg transition-colors">
+                Clear
+              </button>
+              <button onClick={bulkResolve} disabled={bulkUpdating}
+                className="px-3 py-1.5 text-xs bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white rounded-lg font-medium transition-colors">
+                {bulkUpdating ? "Resolving..." : `Resolve ${selected.size} selected`}
+              </button>
+            </>
+          )}
+        </div>
+      )}
+
       {/* List */}
       {loading ? (
         <div className="text-gray-500 text-sm">Loading...</div>
@@ -382,14 +452,23 @@ export default function AlertsPage() {
             const typeInfo = ALERT_TYPE_LABELS[alert.alertType];
             const isLost = alert.status === "lost" || new Date(alert.createdAt) < twoMonthsAgo;
             const o = alert.orderDetails;
+            const scanDate = outboundScanDate(alert);
             return (
               <div
                 key={alert.id}
                 onClick={() => setSelectedAlert(alert)}
-                className={`bg-gray-900 border rounded-xl p-4 cursor-pointer hover:border-gray-600 transition-all ${isLost ? "border-gray-700" : "border-gray-800"}`}
+                className={`bg-gray-900 border rounded-xl p-4 cursor-pointer hover:border-gray-600 transition-all ${isLost ? "border-gray-700" : "border-gray-800"} ${selected.has(alert.id) ? "ring-1 ring-blue-500/40" : ""}`}
               >
                 <div className="flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span onClick={(e) => e.stopPropagation()} className="shrink-0">
+                      <input
+                        type="checkbox"
+                        checked={selected.has(alert.id)}
+                        onChange={() => toggleSelect(alert.id)}
+                        className="w-4 h-4 accent-blue-500 cursor-pointer"
+                      />
+                    </span>
                     <div className="space-y-1 flex-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
                         {isLost && <span className="text-xs bg-gray-700 text-gray-300 px-2 py-0.5 rounded border border-gray-600">LOST</span>}
@@ -412,25 +491,30 @@ export default function AlertsPage() {
                       </div>
                     </div>
                   </div>
-                  <div className="flex gap-2 shrink-0" onClick={(e) => e.stopPropagation()}>
-                    {alert.status !== "investigating" && alert.status !== "resolved" && (
-                      <button
-                        onClick={() => updateStatus(alert.id, "investigating")}
-                        disabled={updating === alert.id}
-                        className="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-xs hover:bg-amber-500/20 transition-colors disabled:opacity-40"
-                      >
-                        Investigate
-                      </button>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {scanDate && (
+                      <span className="text-xs text-gray-500 whitespace-nowrap">Scanned {scanDate}</span>
                     )}
-                    {alert.status !== "resolved" && (
-                      <button
-                        onClick={() => updateStatus(alert.id, "resolved")}
-                        disabled={updating === alert.id}
-                        className="px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-xs hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
-                      >
-                        Resolve
-                      </button>
-                    )}
+                    <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+                      {alert.status !== "investigating" && alert.status !== "resolved" && (
+                        <button
+                          onClick={() => updateStatus(alert.id, "investigating")}
+                          disabled={updating === alert.id}
+                          className="px-2 py-1 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded text-xs hover:bg-amber-500/20 transition-colors disabled:opacity-40"
+                        >
+                          Investigate
+                        </button>
+                      )}
+                      {alert.status !== "resolved" && (
+                        <button
+                          onClick={() => updateStatus(alert.id, "resolved")}
+                          disabled={updating === alert.id}
+                          className="px-2 py-1 bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded text-xs hover:bg-emerald-500/20 transition-colors disabled:opacity-40"
+                        >
+                          Resolve
+                        </button>
+                      )}
+                    </div>
                   </div>
                 </div>
               </div>

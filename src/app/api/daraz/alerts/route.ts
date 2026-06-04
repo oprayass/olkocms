@@ -7,12 +7,10 @@ export async function GET() {
     const alerts = await prisma.darazAlert.findMany({
       orderBy: { createdAt: "desc" },
     });
-
     const enriched = await Promise.all(
       alerts.map(async (alert) => {
         let orderDetails = null;
-
-        // 1. DarazOrder बाट खोज्ने
+        // 1. Try central DarazOrder first.
         if (alert.darazOrderId && alert.darazOrderId !== "unknown") {
           const order = await prisma.darazOrder.findFirst({
             where: { darazOrderId: alert.darazOrderId },
@@ -35,8 +33,7 @@ export async function GET() {
             };
           }
         }
-
-        // 2. DarazOrder मा नभेटिए DarazScan बाट खोज्ने
+        // 2. Fall back to DarazScan if not found in DarazOrder.
         if (!orderDetails && alert.darazOrderId && alert.darazOrderId !== "unknown") {
           const scan = await prisma.darazScan.findFirst({
             where: { darazOrderId: alert.darazOrderId },
@@ -68,26 +65,38 @@ export async function GET() {
             };
           }
         }
-
         return { ...alert, orderDetails };
       })
     );
-
     return NextResponse.json(enriched);
   } catch (err) {
-    return NextResponse.json({ error: String(err).substring(0,150) }, { status: 500 });
+    return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }
 }
 
+// PATCH supports BOTH single ({ id, status }) and bulk ({ ids: string[], status }).
 export async function PATCH(req: NextRequest) {
   try {
-    const { id, status } = await req.json();
+    const body = await req.json();
+    const { id, ids, status } = body as { id?: string; ids?: string[]; status: string };
+    const resolvedAt = status === "resolved" ? new Date() : null;
+
+    // Bulk path.
+    if (Array.isArray(ids) && ids.length > 0) {
+      const result = await prisma.darazAlert.updateMany({
+        where: { id: { in: ids } },
+        data: { status, resolvedAt },
+      });
+      return NextResponse.json({ count: result.count });
+    }
+
+    // Single path.
+    if (!id) {
+      return NextResponse.json({ error: "id or ids required" }, { status: 400 });
+    }
     const alert = await prisma.darazAlert.update({
       where: { id },
-      data: {
-        status,
-        resolvedAt: status === "resolved" ? new Date() : null,
-      },
+      data: { status, resolvedAt },
     });
     return NextResponse.json(alert);
   } catch {

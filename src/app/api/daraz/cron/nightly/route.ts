@@ -91,9 +91,11 @@ async function matchTracking(trackingNo: string) {
   return null;
 }
 
+// Counts an alert as existing in ANY status (incl. resolved/lost) so a resolved
+// alert is NOT re-created on the next run. (resolve must stick.)
 async function alertExists(alertType: string, alertKey: string) {
   const existing = await prisma.darazAlert.findFirst({
-    where: { alertType, notes: { contains: alertKey }, status: { not: "resolved" } },
+    where: { alertType, notes: { contains: alertKey } },
   });
   return !!existing;
 }
@@ -216,9 +218,13 @@ export async function GET(req: NextRequest) {
     const CUTOFF = new Date("2026-05-01T00:00:00+05:45"); // only alert on outbound scanned on/after 1 May 2026
 
 
-    // 4a: clear stale outbound alerts now delivered/done
+    // 4a: clear stale outbound alerts now delivered/done.
+    // Only touch still-open alerts; NEVER delete resolved/lost (keeps resolve sticky).
     const stale = await prisma.darazAlert.findMany({
-      where: { alertType: "outbound_not_delivered" },
+      where: {
+        alertType: "outbound_not_delivered",
+        status: { in: ["unresolved", "investigating"] },
+      },
       select: { id: true, darazOrderId: true },
     });
     for (const a of stale) {
