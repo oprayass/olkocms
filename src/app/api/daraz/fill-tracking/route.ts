@@ -27,10 +27,17 @@ async function fetchItems(orderId: string, accessToken: string, appKey: string, 
   return await res.json();
 }
 
+// Statuses worth pulling tracking for. Tracking appears at ship time and is
+// removed by Daraz once delivered, so only ship-stage statuses are targeted.
+// When body has { recentOnly: true } we restrict to these (used by Sync/cron);
+// otherwise the full DarazOrder list is walked (manual backfill).
+const TRACKABLE = ["ready_to_ship", "packed", "shipped", "pending"];
+
 export async function POST(req: Request) {
   try {
     const body = await req.json().catch(() => ({}));
     const offset = body.offset || 0;
+    const recentOnly = body.recentOnly === true;
     const BATCH = 12;
 
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
@@ -41,9 +48,11 @@ export async function POST(req: Request) {
     });
     const storeById = new Map(stores.map((s) => [s.id, s]));
 
-    const total = await prisma.darazOrder.count();
+    const where = recentOnly ? { status: { in: TRACKABLE } } : {};
+    const total = await prisma.darazOrder.count({ where });
     const orders = await prisma.darazOrder.findMany({
-      orderBy: { createdAt: "asc" },
+      where,
+      orderBy: { orderDate: "desc" },
       skip: offset,
       take: BATCH,
     });
@@ -56,7 +65,6 @@ export async function POST(req: Request) {
       let items: any[] = [];
       let matchedStore: string | null = null;
 
-      // Try saved store first
       const primary = order.storeId ? storeById.get(order.storeId) : null;
       const tryStores = primary ? [primary, ...stores.filter((s) => s.id !== primary.id)] : stores;
 

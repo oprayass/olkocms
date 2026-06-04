@@ -74,6 +74,28 @@ async function upsertDarazOrder(o: {
   return "updated";
 }
 
+// Fetch items+tracking for one order, trying its store first then all stores.
+async function fetchItemsForOrder(
+  orderId: string,
+  primaryStoreId: string | null,
+  stores: { id: string; accessToken: string | null }[],
+  appKey: string,
+  appSecret: string
+): Promise<{ items: any[]; matchedStore: string | null }> {
+  const primary = primaryStoreId ? stores.find((s) => s.id === primaryStoreId) : null;
+  const tryStores = primary ? [primary, ...stores.filter((s) => s.id !== primary.id)] : stores;
+  for (const store of tryStores) {
+    if (!store.accessToken) continue;
+    const data = await callDaraz("/order/items/get", { order_id: orderId }, store.accessToken, appKey, appSecret);
+    const d = data?.data;
+    if (data?.code === "0" && Array.isArray(d) && d.length > 0) {
+      return { items: d, matchedStore: store.id };
+    }
+  }
+  return { items: [], matchedStore: null };
+}
+
+const TRACKABLE = ["ready_to_ship", "packed", "shipped", "pending"];
 const FAILED_STATUSES = ["shipped_back", "failed_delivery", "returned", "shipped_back_success"];
 const DELIVERED_OR_DONE = [
   "delivered", "shipped", "transit_to_ship", "shipped_back", "returned", "canceled", "cancelled",
@@ -101,7 +123,6 @@ async function alertExists(alertType: string, alertKey: string) {
 }
 
 export async function GET(req: NextRequest) {
-  // Guard: same pattern as expire-subscriptions cron.
   const authHeader = req.headers.get("authorization");
   if (authHeader !== `Bearer ${process.env.CRON_SECRET}`) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
@@ -150,6 +171,55 @@ export async function GET(req: NextRequest) {
       } catch { /* skip store */ }
     }
     report.step1_fetch = { ordersCreated, ordersUpdated, ordersSkipped };
+
+    // ---- Step 1b: fill tracking for ship-stage orders (DarazOrderItem.trackingNo) ----
+    // Tracking lives only in DarazOrderItem and Daraz removes it after delivery,
+    // so capture it now for shipped/ready_to_ship orders.
+    let trackingItemsSaved = 0;
+    const trackable = await prisma.darazOrder.findMany({
+      where: { status: { in: TRACKABLE } },
+      orderBy: { orderDate: "desc" },
+      take: 120,
+      select: { darazOrderId: true, storeId: true },
+    });
+    for (const ord of trackable) {
+      try {
+        const { items, matchedStore } = await fetchItemsForOrder(
+          ord.darazOrderId, ord.storeId, stores, appKey, appSecret
+        );
+        for (const it of items) {
+          if (!it.order_item_id) continue;
+          await prisma.darazOrderItem.upsert({
+            where: { orderItemId: String(it.order_item_id) },
+            update: {
+              darazOrderId: ord.darazOrderId,
+              itemName: it.name || null,
+              sku: it.sku || null,
+              status: it.status || null,
+              price: it.paid_price != null ? parseFloat(it.paid_price) : null,
+              storeId: matchedStore,
+              trackingNo: it.tracking_code || null,
+              shipmentProvider: it.shipment_provider || null,
+              cancelReturnInitiator: it.cancel_return_initiator || null,
+            },
+            create: {
+              orderItemId: String(it.order_item_id),
+              darazOrderId: ord.darazOrderId,
+              itemName: it.name || null,
+              sku: it.sku || null,
+              status: it.status || null,
+              price: it.paid_price != null ? parseFloat(it.paid_price) : null,
+              storeId: matchedStore,
+              trackingNo: it.tracking_code || null,
+              shipmentProvider: it.shipment_provider || null,
+              cancelReturnInitiator: it.cancel_return_initiator || null,
+            },
+          });
+          trackingItemsSaved++;
+        }
+      } catch { /* skip order */ }
+    }
+    report.step1b_fillTracking = { trackingItemsSaved, ordersChecked: trackable.length };
 
     // ---- Step 2: refresh-status (update_after last 7 days) -> status changes auto-download ----
     let statusChanged = 0;
@@ -241,7 +311,7 @@ export async function GET(req: NextRequest) {
       }
     }
 
-    // 4b: outbound_not_delivered (sent but no progress = possibly lost)
+    // 4b: outbound_not_delivered (match DarazOrderItem first - tracking lives there)
     const outboundScans = await prisma.darazScan.findMany({
       where: {
         deleted: false,
@@ -251,26 +321,40 @@ export async function GET(req: NextRequest) {
       },
     });
     for (const scan of outboundScans) {
-      const order = await prisma.darazOrder.findFirst({
-        where: {
-          OR: [
-            scan.trackingNo ? { trackingNo: scan.trackingNo } : {},
-            scan.darazOrderId ? { darazOrderId: scan.darazOrderId } : {},
-          ].filter((o) => Object.keys(o).length > 0),
-        },
-      });
-      const status = (order?.status ?? "").toLowerCase();
-      if (order && DELIVERED_OR_DONE.includes(status)) continue;
+      let item = null;
+      if (scan.trackingNo) {
+        item = await prisma.darazOrderItem.findFirst({
+          where: { trackingNo: scan.trackingNo },
+          select: { darazOrderId: true, status: true },
+        });
+      }
+      if (!item && scan.darazOrderId) {
+        item = await prisma.darazOrderItem.findFirst({
+          where: { darazOrderId: scan.darazOrderId },
+          select: { darazOrderId: true, status: true },
+        });
+      }
+      const resolvedOrderId = item?.darazOrderId ?? scan.darazOrderId ?? null;
+      let status = (item?.status ?? "").toLowerCase();
+      if (!status && resolvedOrderId) {
+        const order = await prisma.darazOrder.findFirst({
+          where: { darazOrderId: resolvedOrderId },
+          select: { status: true },
+        });
+        status = (order?.status ?? "").toLowerCase();
+      }
+      const hasMatch = !!item || !!resolvedOrderId;
+      if (hasMatch && status && DELIVERED_OR_DONE.includes(status)) continue;
       const alertKey = scan.trackingNo ?? scan.darazOrderId ?? scan.id;
       if (await alertExists("outbound_not_delivered", alertKey)) continue;
       const isLost = scan.createdAt < twoMonthsAgo;
       await prisma.darazAlert.create({
         data: {
-          darazOrderId: scan.darazOrderId ?? order?.darazOrderId ?? "unknown",
-          productName: scan.itemName ?? scan.productName ?? order?.product ?? "Unknown Item",
+          darazOrderId: resolvedOrderId ?? "unknown",
+          productName: scan.itemName ?? scan.productName ?? "Unknown Item",
           alertType: "outbound_not_delivered",
           status: isLost ? "lost" : "unresolved",
-          notes: `Tracking: ${scan.trackingNo ?? "none"} | Order: ${scan.darazOrderId ?? "unknown"} - outbound scanned but no delivery progress in central DB. Status: ${order?.status ?? "not found"}. Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
+          notes: `Tracking: ${scan.trackingNo ?? "none"} | Order: ${resolvedOrderId ?? "unknown"} - outbound scanned but no delivery progress in central DB. Status: ${status || "not found"}. Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
         },
       });
       alertsCreated++;

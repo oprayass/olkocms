@@ -173,8 +173,8 @@ export default function DarazOrdersPage() {
     setFetching(true);
     setSyncProgress(2);
 
-    // Step A: Fetch Latest Orders (band 0-25)
-    setSyncStep("Step 1/4: Fetching latest orders from Daraz...");
+    // Step A: Fetch Latest Orders (band 0-20)
+    setSyncStep("Step 1/6: Fetching latest orders from Daraz...");
     try {
       const res = await fetch("/api/daraz/orders/fetch");
       const data = await res.json();
@@ -184,10 +184,37 @@ export default function DarazOrdersPage() {
       setFetching(false);
       return;
     }
+    setSyncProgress(20);
+
+    // Step A2: Fill tracking for ship-stage orders (recentOnly, auto-paginate).
+    // Tracking lives in DarazOrderItem and Daraz removes it after delivery,
+    // so capture it now while orders are still shipped/ready_to_ship.
+    setSyncStep("Step 2/6: Capturing tracking numbers...");
+    {
+      let offset = 0;
+      let guard = 0;
+      while (guard < 200) {
+        guard++;
+        try {
+          const res = await fetch("/api/daraz/fill-tracking", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ offset, recentOnly: true }),
+          });
+          const data = await res.json();
+          if (data.error) break;
+          const next = data?.nextOffset;
+          const pct = 20 + Math.min(4, Math.floor(offset / 60));
+          setSyncProgress(pct);
+          if (next === null || next === undefined) break;
+          offset = next;
+        } catch { break; }
+      }
+    }
     setSyncProgress(25);
 
-    // Step B: Refresh Status (band 25-50)
-    setSyncStep("Step 2/4: Refreshing order statuses...");
+    // Step B: Refresh Status (band 25-45)
+    setSyncStep("Step 3/6: Refreshing order statuses...");
     try {
       const res = await fetch("/api/daraz/refresh-status", { method: "POST" });
       const data = await res.json();
@@ -197,10 +224,10 @@ export default function DarazOrdersPage() {
       setFetching(false);
       return;
     }
-    setSyncProgress(50);
+    setSyncProgress(45);
 
-    // Step C: Fill Delivered Dates (band 50-75, auto-paginate)
-    setSyncStep("Step 3/4: Filling delivered dates...");
+    // Step C: Fill Delivered Dates (band 45-70, auto-paginate)
+    setSyncStep("Step 4/6: Filling delivered dates...");
     {
       let offset = 0;
       let done = false;
@@ -217,22 +244,22 @@ export default function DarazOrdersPage() {
           if (!data.success) break;
           done = data.done;
           offset = data.nextOffset || offset + 12;
-          const pct = 50 + Math.min(24, Math.floor(offset / 50));
+          const pct = 45 + Math.min(24, Math.floor(offset / 50));
           setSyncProgress(pct);
         } catch { break; }
       }
     }
-    setSyncProgress(75);
+    setSyncProgress(70);
 
     // Step D: Resolve scans (match scans to central DB by INBOUND MATCH RULE)
-    setSyncStep("Step 4/5: Matching scans to orders...");
+    setSyncStep("Step 5/6: Matching scans to orders...");
     try {
       await fetch("/api/daraz/resolve-scans", { method: "POST" });
     } catch { /* continue to reconcile even if resolve fails */ }
-    setSyncProgress(80);
+    setSyncProgress(78);
 
-    // Step E: Reconcile + Alerts (band 80-100, auto-paginate)
-    setSyncStep("Step 5/5: Reconciling scans and alerts...");
+    // Step E: Reconcile + Alerts (band 78-100, auto-paginate)
+    setSyncStep("Step 6/6: Reconciling scans and alerts...");
     {
       let offset = 0;
       let guard = 0;
@@ -246,7 +273,7 @@ export default function DarazOrdersPage() {
           });
           const data = await res.json();
           const next = data?.nextOffset;
-          const pct = 80 + Math.min(19, Math.floor(offset / 200));
+          const pct = 78 + Math.min(21, Math.floor(offset / 200));
           setSyncProgress(pct);
           if (next === null || next === undefined) break;
           offset = next;
@@ -272,7 +299,6 @@ export default function DarazOrdersPage() {
     const matchStatus = statusFilter === "all" || (statusFilter === "to_ship" ? TO_SHIP.includes(o.status) : o.status === statusFilter);
 
     let matchDate = true;
-    // delivered filter ÃƒÂ Ã‚Â¤Ã‚Â®ÃƒÂ Ã‚Â¤Ã‚Â¾ deliveredAt ÃƒÂ Ã‚Â¤Ã‚Â²ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡ ÃƒÂ Ã‚Â¤Ã¢â‚¬ÂºÃƒÂ Ã‚Â¤Ã‚Â¾ÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã¢â‚¬Â¡, ÃƒÂ Ã‚Â¤Ã¢â‚¬Â¦ÃƒÂ Ã‚Â¤Ã‚Â¨ÃƒÂ Ã‚Â¥Ã‚ÂÃƒÂ Ã‚Â¤Ã‚Â¯ÃƒÂ Ã‚Â¤Ã‚Â¥ÃƒÂ Ã‚Â¤Ã‚Â¾ orderDate
     const useDelivered = statusFilter === "delivered" && o.deliveredAt;
     const created = new Date(useDelivered ? o.deliveredAt! : (o.orderDate || o.createdAt));
     if (period === "custom") {
@@ -318,8 +344,6 @@ export default function DarazOrdersPage() {
           <RefreshCw className={`w-4 h-4 ${fetching ? "animate-spin" : ""}`} />
           {fetching ? "Syncing..." : "Sync Orders"}
         </button>
-        
-        
       </div>
 
       {fetching && (
@@ -394,7 +418,7 @@ export default function DarazOrdersPage() {
           onClick={() => setStoreSort(!storeSort)}
           className={`px-4 py-2 rounded-lg text-sm border ${storeSort ? "bg-violet-700 border-violet-600 text-white" : "bg-gray-900 border-gray-800 text-gray-400"}`}
         >
-          {storeSort ? "Store-wise ÃƒÂ¢Ã…â€œÃ¢â‚¬Å“" : "Store-wise sort"}
+          {storeSort ? "Store-wise on" : "Store-wise sort"}
         </button>
       </div>
 

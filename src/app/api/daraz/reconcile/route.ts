@@ -40,7 +40,7 @@ export async function POST(req: NextRequest) {
     const CUTOFF = new Date("2026-05-01T00:00:00+05:45"); // only alert on outbound scanned on/after 1 May 2026
 
 
-    // offset 0: clear stale outbound alerts whose order is now delivered/done.
+    // offset 0: clear stale outbound alerts whose item/order is now delivered/done.
     // Only touch still-open alerts; NEVER delete resolved/lost (keeps resolve sticky).
     if (offset === 0) {
       const stale = await prisma.darazAlert.findMany({
@@ -66,6 +66,8 @@ export async function POST(req: NextRequest) {
     }
 
     // ---------- A) outbound_not_delivered (paginated) ----------
+    // Match the outbound scan against central DarazOrderItem FIRST (tracking lives
+    // there, not in DarazOrder). Fall back to DarazOrder by orderId for status.
     const outboundScans = await prisma.darazScan.findMany({
       where: {
         deleted: false,
@@ -79,19 +81,35 @@ export async function POST(req: NextRequest) {
     });
 
     for (const scan of outboundScans) {
-      const order = await prisma.darazOrder.findFirst({
-        where: {
-          OR: [
-            scan.trackingNo ? { trackingNo: scan.trackingNo } : {},
-            scan.darazOrderId ? { darazOrderId: scan.darazOrderId } : {},
-          ].filter((o) => Object.keys(o).length > 0),
-        },
-      });
+      // 1. Try the central item table by tracking (the real source of tracking).
+      let item = null;
+      if (scan.trackingNo) {
+        item = await prisma.darazOrderItem.findFirst({
+          where: { trackingNo: scan.trackingNo },
+          select: { darazOrderId: true, status: true },
+        });
+      }
+      if (!item && scan.darazOrderId) {
+        item = await prisma.darazOrderItem.findFirst({
+          where: { darazOrderId: scan.darazOrderId },
+          select: { darazOrderId: true, status: true },
+        });
+      }
 
-      const status = (order?.status ?? "").toLowerCase();
-      const shouldAlert =
-        !order || !DELIVERED_OR_DONE.includes(status);
-      if (!shouldAlert) {
+      // 2. Resolve a status: prefer the item status, else the order status.
+      const resolvedOrderId = item?.darazOrderId ?? scan.darazOrderId ?? null;
+      let status = (item?.status ?? "").toLowerCase();
+      if (!status && resolvedOrderId) {
+        const order = await prisma.darazOrder.findFirst({
+          where: { darazOrderId: resolvedOrderId },
+          select: { status: true },
+        });
+        status = (order?.status ?? "").toLowerCase();
+      }
+
+      // If we found a matching item/order AND it is delivered/done -> no alert.
+      const hasMatch = !!item || !!resolvedOrderId;
+      if (hasMatch && status && DELIVERED_OR_DONE.includes(status)) {
         skipped++;
         continue;
       }
@@ -105,11 +123,11 @@ export async function POST(req: NextRequest) {
       const isLost = scan.createdAt < twoMonthsAgo;
       await prisma.darazAlert.create({
         data: {
-          darazOrderId: scan.darazOrderId ?? order?.darazOrderId ?? "unknown",
-          productName: scan.itemName ?? scan.productName ?? order?.product ?? "Unknown Item",
+          darazOrderId: resolvedOrderId ?? "unknown",
+          productName: scan.itemName ?? scan.productName ?? "Unknown Item",
           alertType: "outbound_not_delivered",
           status: isLost ? "lost" : "unresolved",
-          notes: `Tracking: ${scan.trackingNo ?? "none"} | Order: ${scan.darazOrderId ?? "unknown"} - outbound scanned but no delivery progress in central DB. Status: ${order?.status ?? "not found"}. Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
+          notes: `Tracking: ${scan.trackingNo ?? "none"} | Order: ${resolvedOrderId ?? "unknown"} - outbound scanned but no delivery progress in central DB. Status: ${status || "not found"}. Scanned by: ${scan.scannedBy ?? "unknown"} on ${scan.createdAt.toLocaleDateString()}`,
         },
       });
       created++;
