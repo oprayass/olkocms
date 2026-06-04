@@ -25,6 +25,7 @@ export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [items, setItems] = useState<OrderItem[]>([]);
   const [storeName, setStoreName] = useState("");
+  const [orderDate, setOrderDate] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -39,6 +40,7 @@ export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
         if (data.success) {
           setItems(data.items || []);
           setStoreName(data.store || "");
+          setOrderDate(data.orderDate || "");
         } else {
           setError(data.error || "No details found");
         }
@@ -65,6 +67,7 @@ export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
             <div>
               <h3 className="text-white font-semibold">Order #{orderId}</h3>
               {storeName && <p className="text-gray-500 text-xs">{storeName}</p>}
+              {orderDate && <p className="text-gray-500 text-xs">Ordered: {new Date(orderDate).toLocaleString()}</p>}
             </div>
           </div>
           <button onClick={onClose} className="text-gray-400 hover:text-white">
@@ -103,6 +106,7 @@ export default function OrderDetailPopup({ orderId, storeId, onClose }: Props) {
                       {it.sku && <p className="text-gray-500 text-xs mt-0.5">SKU: {it.sku}</p>}
                       <div className="flex items-center gap-3 mt-2 flex-wrap">
                         <span className="text-emerald-400 text-sm font-medium">Rs {it.paidPrice.toLocaleString()}</span>
+                        <span className="text-gray-400 text-xs">Qty: {it.quantity}</span>
                         {it.status && (
                           <span className="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-300">{it.status}</span>
                         )}

@@ -3,6 +3,7 @@ import { useState, useEffect, Suspense } from "react";
 import { useSearchParams, useRouter } from "next/navigation";
 import { Package, Trash2, RotateCcw, AlertTriangle, Clock, Search, AlertOctagon } from "lucide-react";
 import { validateTracking, looksLikeQrOrAddress } from "@/lib/trackingValidator";
+import OrderDetailPopup from "@/components/OrderDetailPopup";
 import { resolveStoreName } from "@/lib/storeMap";
 
 interface Scan {
@@ -37,6 +38,7 @@ function ScansContent() {
   const [searchTerm, setSearchTerm] = useState("");
   const [searchInput, setSearchInput] = useState("");
   const [searchWarn, setSearchWarn] = useState<string | null>(null);
+  const [popupOrder, setPopupOrder] = useState<{ orderId: string; storeId: string | null } | null>(null);
 
   const [scans, setScans] = useState<Scan[]>([]);
   const [loading, setLoading] = useState(true);
@@ -208,7 +210,13 @@ function ScansContent() {
                 <div className="space-y-1 flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
                     {s.wrongStore && <span className="text-xs bg-red-500/10 text-red-400 border border-red-500/20 px-2 py-0.5 rounded">WRONG STORE</span>}
-                    <span className="text-white font-mono text-sm">{s.trackingNo || "(no tracking)"}</span>
+                    {s.darazOrderId ? (
+                      <button onClick={() => setPopupOrder({ orderId: s.darazOrderId!, storeId: s.storeId })} className="text-blue-400 hover:text-blue-300 hover:underline font-mono text-sm">
+                        {s.trackingNo || "(no tracking)"}
+                      </button>
+                    ) : (
+                      <span className="text-white font-mono text-sm">{s.trackingNo || "(no tracking)"}</span>
+                    )}
                     {s.itemName && <span className="text-gray-400 text-xs truncate">{s.itemName}</span>}
                   </div>
                   <div className="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
@@ -247,6 +255,13 @@ function ScansContent() {
 
       {!isAdmin && (
         <p className="text-gray-600 text-xs">Delete/Undo permission: admin only</p>
+      )}
+      {popupOrder && (
+        <OrderDetailPopup
+          orderId={popupOrder.orderId}
+          storeId={popupOrder.storeId}
+          onClose={() => setPopupOrder(null)}
+        />
       )}
     </div>
   );

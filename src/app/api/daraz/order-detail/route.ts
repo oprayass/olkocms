@@ -36,7 +36,7 @@ export async function GET(req: NextRequest) {
 
     if (!orderId) return NextResponse.json({ error: "orderId required" }, { status: 400 });
 
-    // store decide: param भए त्यही, नत्र सबै active store मा खोज्ने
+    // store decide: param à¤­à¤ à¤¤à¥à¤¯à¤¹à¥€, à¤¨à¤¤à¥à¤° à¤¸à¤¬à¥ˆ active store à¤®à¤¾ à¤–à¥‹à¤œà¥à¤¨à¥‡
     let stores;
     if (storeId) {
       stores = await prisma.darazStore.findMany({
@@ -56,7 +56,7 @@ export async function GET(req: NextRequest) {
           name: it.name || "Unknown product",
           sku: it.sku || it.shop_sku || "",
           variation: it.variation || "",
-          quantity: 1,
+          quantity: parseInt(it.quantity) || 1,
           paidPrice: parseFloat(it.paid_price) || 0,
           trackingCode: it.tracking_code || "",
           shipmentProvider: it.shipment_provider || "",
@@ -64,10 +64,17 @@ export async function GET(req: NextRequest) {
           reason: it.reason || "",
           productImage: it.product_main_image || "",
         }));
+        // Fetch order-level info (creation date) from /orders/get.
+        let orderDate = "";
+        try {
+          const orderResp = await callDaraz("/orders/get", { order_id: orderId }, store.accessToken!, appKey, appSecret);
+          orderDate = orderResp?.data?.created_at || orderResp?.data?.[0]?.created_at || "";
+        } catch { /* order date is optional */ }
         return NextResponse.json({
           success: true,
           orderId,
           store: store.storeName,
+          orderDate,
           itemCount: mapped.length,
           items: mapped,
         });
