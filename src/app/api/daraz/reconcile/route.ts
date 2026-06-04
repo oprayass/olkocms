@@ -5,6 +5,8 @@ export const dynamic = "force-dynamic";
 
 const FAILED_STATUSES = ["shipped_back", "failed_delivery", "returned", "shipped_back_success"];
 const DELIVERED_OR_DONE = [
+  "shipped_back_success",
+  "failed_delivery",
   "delivered",
   "shipped",
   "transit_to_ship",
