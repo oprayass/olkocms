@@ -23,8 +23,17 @@ async function fetchItems(orderId: string, accessToken: string, appKey: string, 
   const sortedKeys = Object.keys(params).sort();
   const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
   const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
-  const res = await fetch(url, { method: "GET" });
-  return await res.json();
+  // Per-call timeout: one slow store must not kill the whole request (Vercel 10s).
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 4000);
+  try {
+    const res = await fetch(url, { method: "GET", signal: ctrl.signal });
+    return await res.json();
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 // Statuses worth pulling tracking for. Tracking appears at ship time and is
@@ -38,7 +47,7 @@ export async function POST(req: Request) {
     const body = await req.json().catch(() => ({}));
     const offset = body.offset || 0;
     const recentOnly = body.recentOnly === true;
-    const BATCH = 12;
+    const BATCH = 4;
 
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
@@ -66,7 +75,7 @@ export async function POST(req: Request) {
       let matchedStore: string | null = null;
 
       const primary = order.storeId ? storeById.get(order.storeId) : null;
-      const tryStores = primary ? [primary, ...stores.filter((s) => s.id !== primary.id)] : stores;
+      const tryStores = primary ? [primary] : stores;
 
       for (const store of tryStores) {
         const data = await fetchItems(orderId, store.accessToken!, appKey, appSecret);
