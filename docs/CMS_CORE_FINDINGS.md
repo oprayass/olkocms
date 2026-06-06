@@ -92,3 +92,10 @@ The social-commerce CMS (everything except Daraz and the webhook/AI internals): 
 
 ## Pending
 - Ad campaign management UI (create/edit). Subscription auto-expire verified via cron. WhatsApp number in pricing CTA. Combined Admin-only report gated by `role==='admin'` OR (`canViewReports && canViewPnL`). Wire IG/WA after Meta approval. Daraz CSV import as a stopgap (superseded — Daraz API now works; see DARAZ_API).
+
+## Messages page platform filter fix (2026-06-07)
+- File: src/app/dashboard/messages/page.tsx. Filter tabs are labeled All/Facebook/IG/WA but DB platform strings are facebook/instagram/whatsapp.
+- BUG: old filter did t.platform === filter.toLowerCase() || t.platform === filter -> "WA"->"wa" != "whatsapp", "IG"->"ig" != "instagram". WA/IG tabs showed "No messages yet". Facebook worked only by coincidence ("Facebook"->"facebook").
+- FIX: added filterToPlatform map { Facebook:"facebook", IG:"instagram", WA:"whatsapp" }; filter now: filter === "All" || t.platform === filterToPlatform[filter].
+- Also platformStyle/platformLabel maps only had FB/IG/WA keys -> whatsapp/instagram threads got gray avatar + blank header label. Added lowercase keys facebook/instagram/whatsapp to both maps (kept old keys for back-compat). WA avatar now emerald, label "WhatsApp".
+- Verified 2026-06-07: WA tab shows the whatsapp thread with green avatar + correct label. Commit d0dfe58.

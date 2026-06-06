@@ -52,3 +52,16 @@ Confirmed: message persists with platform `facebook`, given senderId/pageId, sta
 
 ## Pending
 - Publish app / finish Business Verification → unblocks real POSTs and Instagram/WhatsApp (same webhook pattern). Subscribe `feed`+`mention`. WhatsApp needs a Business number. Rotate any API key ever committed.
+
+## WhatsApp Cloud API integration (2026-06-07)
+- Same route handles FB + WhatsApp: src/app/api/webhook/facebook/route.ts. WhatsApp Cloud API is the only path now (on-premise API ended Oct 2025).
+- POST: WhatsApp payload differs from Messenger. object === "whatsapp_business_account" -> entry[].changes[] where change.field === "messages" -> change.value.messages[]. Each msg: msg.from (sender wa_id), msg.text?.body, msg.type, msg.timestamp. Sender name from change.value.contacts[0].profile.name. phone_number_id from change.value.metadata.phone_number_id (used BOTH as pageId and as send target).
+- GOTCHA: WhatsApp msg.timestamp is Unix SECONDS as a string -> new Date(parseInt(msg.timestamp) * 1000). FB event.timestamp is already ms.
+- Stored as Message platform:"whatsapp", senderId=msg.from, pageId=phone_number_id. AIConversation lookup reuses senderId+pageId, so the existing sales agent works unchanged (called with platform "whatsapp").
+- Send: new fn sendWhatsAppMessage(phoneNumberId, to, text). POST https://graph.facebook.com/v21.0/{phone_number_id}/messages, header Authorization: Bearer {WHATSAPP_TOKEN}, body { messaging_product:"whatsapp", to, type:"text", text:{ body } }. Different from FB send (FB uses page token in query + recipient/message shape).
+- ENV: WHATSAPP_TOKEN on Vercel. Test phase = temporary token from App Dashboard > WhatsApp > API Setup; prod = permanent System User token.
+- GET verify unchanged (token olkocms2024) - WhatsApp uses the same verification.
+- Non-text WA msgs stored as "[media]" and routed through AI (no special voice handling like FB). reaction/system types skipped.
+- Dashboard side still needed for real msgs: add WhatsApp product, Configuration > Webhook callback https://olkocms.vercel.app/api/webhook/facebook + verify olkocms2024 + subscribe field "messages". Real number/production blocked on Business Verification (same gate as FB/IG). Test number works while unpublished.
+- Meta app use case "Connect with customers through WhatsApp" already configured (green check). App ID 2229305921144083.
+- Verified 2026-06-07: fake WA POST -> EVENT_RECEIVED, message saved with platform whatsapp, AI replied. Commit 4a6774b.
