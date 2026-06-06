@@ -1,4 +1,4 @@
-﻿import { prisma } from '@/lib/prisma'
+import { prisma } from '@/lib/prisma'
 
 const NEPALI_BABU_TOKEN = process.env.NEPALI_BABU_PAGE_TOKEN
 const PINK_ME_TOKEN = process.env.PINK_ME_PAGE_TOKEN
@@ -51,6 +51,31 @@ async function sendFacebookMessage(pageToken: string, recipientId: string, text:
     })
   } catch (err) {
     console.error('Send message error:', err)
+  }
+}
+
+async function sendWhatsAppMessage(phoneNumberId: string, recipientId: string, text: string) {
+  try {
+    const token = process.env.WHATSAPP_TOKEN
+    if (!token) {
+      console.error('WhatsApp send skipped: WHATSAPP_TOKEN not set')
+      return
+    }
+    await fetch(`https://graph.facebook.com/v21.0/${phoneNumberId}/messages`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${token}`
+      },
+      body: JSON.stringify({
+        messaging_product: 'whatsapp',
+        to: recipientId,
+        type: 'text',
+        text: { body: text }
+      })
+    })
+  } catch (err) {
+    console.error('WhatsApp send error:', err)
   }
 }
 
@@ -475,6 +500,49 @@ export const POST = async (req: Request) => {
                   data: { replied: true, replyText, aiReplied: true }
                 })
               }
+            }
+          }
+        }
+      }
+    }
+
+    if (body.object === 'whatsapp_business_account') {
+      for (const entry of body.entry || []) {
+        for (const change of entry.changes || []) {
+          if (change.field !== 'messages') continue
+          const value = change.value || {}
+          const phoneNumberId = value.metadata?.phone_number_id
+          const contactName = value.contacts?.[0]?.profile?.name
+
+          for (const msg of value.messages || []) {
+            if (msg.type === 'reaction' || msg.type === 'system') continue
+            const senderId = msg.from
+            const senderName = contactName || senderId
+            const messageText = msg.text?.body || '[media]'
+
+            try {
+              await prisma.message.create({
+                data: {
+                  platform: 'whatsapp',
+                  senderId,
+                  senderName,
+                  pageId: phoneNumberId,
+                  message: messageText,
+                  timestamp: new Date(parseInt(msg.timestamp) * 1000),
+                  status: 'new',
+                }
+              })
+            } catch (dbErr) {
+              console.error('WhatsApp DB error:', dbErr)
+            }
+
+            if (phoneNumberId) {
+              const replyText = await generateAIReply(senderId, phoneNumberId, messageText, 'whatsapp', senderName)
+              await sendWhatsAppMessage(phoneNumberId, senderId, replyText)
+              await prisma.message.updateMany({
+                where: { senderId, pageId: phoneNumberId, replied: false },
+                data: { replied: true, replyText, aiReplied: true }
+              })
             }
           }
         }
