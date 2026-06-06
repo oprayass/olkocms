@@ -4,6 +4,8 @@ import { useSession } from 'next-auth/react'
 
 const platformStyle: Record<string, string> = {
   facebook: 'bg-blue-600',
+  instagram: 'bg-gradient-to-br from-pink-500 to-purple-600',
+  whatsapp: 'bg-emerald-600',
   FB: 'bg-blue-600',
   IG: 'bg-gradient-to-br from-pink-500 to-purple-600',
   WA: 'bg-emerald-600',
@@ -11,9 +13,17 @@ const platformStyle: Record<string, string> = {
 
 const platformLabel: Record<string, string> = {
   facebook: 'Facebook',
+  instagram: 'Instagram',
+  whatsapp: 'WhatsApp',
   FB: 'Facebook',
   IG: 'Instagram',
   WA: 'WhatsApp',
+}
+
+const filterToPlatform: Record<string, string> = {
+  Facebook: 'facebook',
+  IG: 'instagram',
+  WA: 'whatsapp',
 }
 
 interface Message {
@@ -106,7 +116,7 @@ export default function MessagesPage() {
   }, [])
 
   const filteredThreads = threads.filter(t =>
-    filter === 'All' || t.platform === filter.toLowerCase() || t.platform === filter
+    filter === 'All' || t.platform === filterToPlatform[filter]
   )
 
   const logActivity = async (action: string, description: string, entityId: string, isAI: boolean) => {
