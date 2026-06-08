@@ -19,6 +19,7 @@ model User {
   updatedAt      DateTime  @updatedAt
   orders         Order[]
   messages       Message[]
+  @@index([subscriptionId])
 }
 
 model Staff {
@@ -49,9 +50,11 @@ model Staff {
   canPostContent      Boolean @default(false)
   canViewSettings     Boolean @default(false)
   canManageDaraz      Boolean @default(false)
+  @@index([subscriptionId])
 }
 
 model Order {
+  subscriptionId String?
   id                     String   @id @default(cuid())
   orderId                String   @unique
   customerName           String
@@ -83,9 +86,12 @@ model Order {
   darazOrderId           String?
   darazStatus            String?
   darazPlatform          String?
+  @@index([subscriptionId, status])
+  @@index([subscriptionId, createdAt])
 }
 
 model Message {
+  subscriptionId String?
   id         String   @id @default(cuid())
   platform   String
   senderId   String
@@ -101,9 +107,12 @@ model Message {
   staffId    String?
   staff      User?    @relation(fields: [staffId], references: [id])
   createdAt  DateTime @default(now())
+  @@index([subscriptionId, status])
+  @@index([subscriptionId, senderId, pageId])
 }
 
 model Followup {
+  subscriptionId String?
   id           String   @id @default(cuid())
   customerName String
   phone        String
@@ -114,9 +123,11 @@ model Followup {
   notes        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  @@index([subscriptionId, status])
 }
 
 model Shipment {
+  subscriptionId String?
   id        String   @id @default(cuid())
   orderId   String
   customer  String
@@ -129,9 +140,11 @@ model Shipment {
   estimated String?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
+  @@index([subscriptionId, status])
 }
 
 model Content {
+  subscriptionId String?
   id          String    @id @default(cuid())
   title       String
   body        String
@@ -142,9 +155,11 @@ model Content {
   staffId     String?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
+  @@index([subscriptionId, status])
 }
 
 model Transaction {
+  subscriptionId String?
   id          String   @id @default(cuid())
   type        String
   category    String
@@ -153,9 +168,11 @@ model Transaction {
   date        DateTime @default(now())
   staffId     String?
   createdAt   DateTime @default(now())
+  @@index([subscriptionId, date])
 }
 
 model DarazStore {
+  subscriptionId String?
   id           String    @id @default(cuid())
   storeName    String
   sellerId     String?   @unique
@@ -168,9 +185,11 @@ model DarazStore {
   lastReturnFetch DateTime?
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
+  @@index([subscriptionId])
 }
 
 model DarazOrder {
+  subscriptionId String?
   id            String   @id @default(cuid())
   darazOrderId  String   @unique
   customerName  String
@@ -186,9 +205,12 @@ model DarazOrder {
   deliveredAt   DateTime?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  @@index([subscriptionId, status])
+  @@index([subscriptionId, orderDate])
 }
 
 model DarazOrderItem {
+  subscriptionId String?
   id            String   @id @default(cuid())
   orderItemId   String   @unique
   darazOrderId  String
@@ -216,8 +238,11 @@ model DarazOrderItem {
   @@index([trackingNo])
   @@index([returnTrackingNo])
   @@index([darazOrderId])
+  @@index([subscriptionId, trackingNo])
+  @@index([subscriptionId, status])
 }
 model ActivityLog {
+  subscriptionId String?
   id          String   @id @default(cuid())
   action      String
   description String
@@ -228,9 +253,11 @@ model ActivityLog {
   isAI        Boolean  @default(false)
   metadata    String?
   createdAt   DateTime @default(now())
+  @@index([subscriptionId, createdAt])
 }
 
 model Product {
+  subscriptionId String?
   id           String   @id @default(cuid())
   name         String
   description  String?
@@ -248,9 +275,11 @@ model Product {
   status       String   @default("Active")
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  @@index([subscriptionId, status])
 }
 
 model AdCampaign {
+  subscriptionId String?
   id        String      @id @default(cuid())
   name      String
   platform  String      @default("facebook")
@@ -265,9 +294,11 @@ model AdCampaign {
   updatedAt DateTime    @updatedAt
   expenses  AdExpense[]
   orders    AdOrder[]
+  @@index([subscriptionId, status])
 }
 
 model AdExpense {
+  subscriptionId String?
   id          String     @id @default(cuid())
   campaignId  String
   campaign    AdCampaign @relation(fields: [campaignId], references: [id])
@@ -276,9 +307,11 @@ model AdExpense {
   description String?
   date        DateTime   @default(now())
   createdAt   DateTime   @default(now())
+  @@index([subscriptionId, date])
 }
 
 model AdOrder {
+  subscriptionId String?
   id                     String      @id @default(cuid())
   campaignId             String?
   campaign               AdCampaign? @relation(fields: [campaignId], references: [id])
@@ -296,9 +329,11 @@ model AdOrder {
   isFailedDelivery       Boolean     @default(false)
   createdAt              DateTime    @default(now())
   updatedAt              DateTime    @updatedAt
+  @@index([subscriptionId, status])
 }
 
 model AIConversation {
+  subscriptionId String?
   id         String   @id @default(cuid())
   senderId   String
   pageId     String?
@@ -311,6 +346,8 @@ model AIConversation {
   resolved   Boolean  @default(false)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
+  @@index([subscriptionId, senderId, pageId])
+  @@index([subscriptionId, resolved])
 }
 
 model Plan {
@@ -361,6 +398,7 @@ model Payment {
   createdAt      DateTime     @default(now())
 }
 model DarazScan {
+  subscriptionId String?
   id           String   @id @default(cuid())
   darazOrderId String?
   productName  String?
@@ -378,9 +416,12 @@ model DarazScan {
     deletedAt    DateTime?
     deletedBy    String?
   createdAt    DateTime @default(now())
+  @@index([subscriptionId, trackingNo])
+  @@index([subscriptionId, scanType, deleted])
 }
 
 model DarazAlert {
+  subscriptionId String?
   id           String    @id @default(cuid())
   darazOrderId String
   productName  String
@@ -389,12 +430,14 @@ model DarazAlert {
   notes        String?
   resolvedAt   DateTime?
   createdAt    DateTime  @default(now())
+  @@index([subscriptionId, status])
 }
 
 
 
 
 model DarazClaim {
+  subscriptionId String?
   id              String    @id @default(cuid())
   trackingNo      String
   darazOrderId    String?
@@ -422,6 +465,8 @@ model DarazClaim {
     claimDecision   String?   @default("undecided")
   createdAt       DateTime  @default(now())
   updatedAt       DateTime  @updatedAt
+  @@index([subscriptionId, claimStatus])
+  @@index([subscriptionId, trackingNo])
 }
 
 model DarazClaimLog {
