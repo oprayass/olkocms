@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
-import { getServerSession } from "next-auth"
-import { authOptions } from "@/lib/auth"
+import { withTenant } from "@/lib/with-tenant"
 
-export async function GET(req: NextRequest) {
-  const session = await getServerSession(authOptions)
-  if (!session) return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
-
+export const GET = withTenant(async (req: NextRequest) => {
   const { searchParams } = new URL(req.url)
   const senderId = searchParams.get("senderId")
   const phone = searchParams.get("phone")
-
   if (!senderId && !phone) return NextResponse.json({ messages: [], total: 0 })
-
   try {
     let finalSenderId = senderId
     if (!senderId && phone) {
@@ -20,7 +14,6 @@ export async function GET(req: NextRequest) {
       finalSenderId = order?.senderId || null
     }
     if (!finalSenderId) return NextResponse.json({ messages: [], total: 0 })
-
     const messages = await prisma.message.findMany({
       where: { senderId: finalSenderId },
       orderBy: { createdAt: "asc" },
@@ -31,4 +24,4 @@ export async function GET(req: NextRequest) {
     console.error("Customer messages error:", error)
     return NextResponse.json({ error: "Failed" }, { status: 500 })
   }
-}
+})
