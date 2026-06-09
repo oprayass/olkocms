@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const orders = await prisma.order.findMany({
       orderBy: { createdAt: 'desc' }
@@ -10,9 +11,9 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch orders' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: NextRequest) {
+export const POST = withTenant(async (req: NextRequest) => {
   try {
     const body = await req.json()
     const order = await prisma.order.create({ data: body })
@@ -20,4 +21,4 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create order' }, { status: 500 })
   }
-}
+})
