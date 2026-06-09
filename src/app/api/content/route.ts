@@ -1,18 +1,17 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
-    const contents = await prisma.content.findMany({
-      orderBy: { createdAt: 'desc' }
-    })
+    const contents = await prisma.content.findMany({ orderBy: { createdAt: 'desc' } })
     return NextResponse.json(contents)
   } catch (error) {
     return NextResponse.json({ error: 'Failed' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withTenant(async (req: Request) => {
   try {
     const body = await req.json()
     const content = await prisma.content.create({ data: body })
@@ -20,4 +19,4 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed' }, { status: 500 })
   }
-}
+})

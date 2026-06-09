@@ -1,18 +1,17 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
-    const shipments = await prisma.shipment.findMany({
-      orderBy: { createdAt: 'desc' }
-    })
+    const shipments = await prisma.shipment.findMany({ orderBy: { createdAt: 'desc' } })
     return NextResponse.json(shipments)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch shipments' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withTenant(async (req: Request) => {
   try {
     const body = await req.json()
     const shipment = await prisma.shipment.create({ data: body })
@@ -20,17 +19,14 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create shipment' }, { status: 500 })
   }
-}
+})
 
-export async function PATCH(req: Request) {
+export const PATCH = withTenant(async (req: Request) => {
   try {
     const { id, ...data } = await req.json()
-    const shipment = await prisma.shipment.update({
-      where: { id },
-      data,
-    })
+    const shipment = await prisma.shipment.update({ where: { id }, data })
     return NextResponse.json(shipment)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update shipment' }, { status: 500 })
   }
-}
+})

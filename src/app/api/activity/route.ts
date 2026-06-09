@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET(req: Request) {
+export const GET = withTenant(async (req: Request) => {
   try {
     const { searchParams } = new URL(req.url)
     const limit = parseInt(searchParams.get('limit') || '50')
@@ -13,9 +14,9 @@ export async function GET(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch logs' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withTenant(async (req: Request) => {
   try {
     const body = await req.json()
     const { action, description, entityType, entityId, performedBy, staffName, isAI, metadata } = body
@@ -35,4 +36,4 @@ export async function POST(req: Request) {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to create log' }, { status: 500 })
   }
-}
+})

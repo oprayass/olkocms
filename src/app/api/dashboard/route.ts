@@ -1,8 +1,9 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
 import { nepalTodayStartUTC } from '@/lib/nepalTime'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const today = nepalTodayStartUTC()
 
@@ -45,7 +46,6 @@ export async function GET() {
       _sum: { price: true }
     })
 
-    // Ad stats
     const todayAdSpent = adCampaigns.reduce((a, c) => {
       return a + c.expenses.reduce((b: number, e: any) => b + e.amount, 0)
     }, 0)
@@ -81,4 +81,4 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch dashboard data' }, { status: 500 })
   }
-}
+})
