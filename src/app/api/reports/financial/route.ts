@@ -1,7 +1,8 @@
-﻿import { NextRequest, NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET(req: NextRequest) {
+export const GET = withTenant(async (req: NextRequest) => {
   try {
     const orders = await prisma.order.findMany({
       where: { status: "Delivered" },
@@ -126,4 +127,4 @@ export async function GET(req: NextRequest) {
     console.error(e);
     return NextResponse.json({ error: "Failed to fetch financial data" }, { status: 500 });
   }
-}
+});

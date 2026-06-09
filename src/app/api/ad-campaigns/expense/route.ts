@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withTenant } from "@/lib/with-tenant"
 
-export async function POST(req: NextRequest) {
+export const POST = withTenant(async (req: NextRequest) => {
   try {
     const body = await req.json()
     const { campaignId, type, amount, description } = body
@@ -11,7 +12,7 @@ export async function POST(req: NextRequest) {
       data: { campaignId, type, amount, description: description || null }
     })
 
-    // Campaign spent amount update गर्ने
+    // Update campaign spent amount
     await prisma.adCampaign.update({
       where: { id: campaignId },
       data: { spent: { increment: amount } }
@@ -21,4 +22,4 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: "Failed" }, { status: 500 })
   }
-}
+})

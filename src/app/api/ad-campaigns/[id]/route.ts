@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server"
 import { prisma } from "@/lib/prisma"
+import { withTenant } from "@/lib/with-tenant"
 
-export async function PATCH(req: NextRequest, { params }: { params: { id: string } }) {
+export const PATCH = withTenant(async (req: NextRequest, { params }: { params: { id: string } }) => {
   try {
     const body = await req.json()
     const campaign = await prisma.adCampaign.update({
@@ -12,13 +13,13 @@ export async function PATCH(req: NextRequest, { params }: { params: { id: string
   } catch (error) {
     return NextResponse.json({ error: "Failed" }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(req: NextRequest, { params }: { params: { id: string } }) {
+export const DELETE = withTenant(async (req: NextRequest, { params }: { params: { id: string } }) => {
   try {
     await prisma.adCampaign.delete({ where: { id: params.id } })
     return NextResponse.json({ success: true })
   } catch (error) {
     return NextResponse.json({ error: "Failed" }, { status: 500 })
   }
-}
+})
