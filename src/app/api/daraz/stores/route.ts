@@ -1,7 +1,8 @@
 ﻿import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const stores = await prisma.darazStore.findMany({
       orderBy: { createdAt: "desc" },
@@ -10,9 +11,9 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: "Failed to fetch stores" }, { status: 500 });
   }
-}
+});
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withTenant(async (req: NextRequest) => {
   try {
     const { id, storeName, isActive } = await req.json();
     const store = await prisma.darazStore.update({
@@ -23,9 +24,9 @@ export async function PATCH(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Failed to update store" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE(req: NextRequest) {
+export const DELETE = withTenant(async (req: NextRequest) => {
   try {
     const { id } = await req.json();
     await prisma.darazStore.delete({ where: { id } });
@@ -33,4 +34,4 @@ export async function DELETE(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Failed to delete store" }, { status: 500 });
   }
-}
+});
