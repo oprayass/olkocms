@@ -1,16 +1,17 @@
 import { prisma } from '@/lib/prisma'
 import { NextResponse } from 'next/server'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET(req: Request, { params }: { params: { id: string } }) {
+export const GET = withTenant(async (req: Request, { params }: { params: { id: string } }) => {
   try {
     const product = await prisma.product.findUnique({ where: { id: params.id } })
     return NextResponse.json(product)
   } catch (error) {
     return NextResponse.json({ error: 'Failed to fetch product' }, { status: 500 })
   }
-}
+})
 
-export async function PATCH(req: Request, { params }: { params: { id: string } }) {
+export const PATCH = withTenant(async (req: Request, { params }: { params: { id: string } }) => {
   try {
     const body = await req.json()
     const product = await prisma.product.update({
@@ -21,13 +22,13 @@ export async function PATCH(req: Request, { params }: { params: { id: string } }
   } catch (error) {
     return NextResponse.json({ error: 'Failed to update product' }, { status: 500 })
   }
-}
+})
 
-export async function DELETE(req: Request, { params }: { params: { id: string } }) {
+export const DELETE = withTenant(async (req: Request, { params }: { params: { id: string } }) => {
   try {
     await prisma.product.delete({ where: { id: params.id } })
     return NextResponse.json({ success: true })
   } catch (error) {
     return NextResponse.json({ error: 'Failed to delete product' }, { status: 500 })
   }
-}
+})
