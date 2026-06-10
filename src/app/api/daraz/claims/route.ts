@@ -1,7 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET(req: NextRequest) {
+export const GET = withTenant(async (req: NextRequest) => {
   try {
     const decision = req.nextUrl.searchParams.get("decision"); // "need" | "all" | null
     const where: any = {};
@@ -14,9 +15,9 @@ export async function GET(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Failed to fetch claims" }, { status: 500 });
   }
-}
+});
 
-export async function PATCH(req: NextRequest) {
+export const PATCH = withTenant(async (req: NextRequest) => {
   try {
     const { id, claimStatus, claimResult } = await req.json();
     const claim = await prisma.darazClaim.update({
@@ -31,4 +32,4 @@ export async function PATCH(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Failed to update claim" }, { status: 500 });
   }
-}
+});

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { resolveStoreName } from "@/lib/storeMap";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const alerts = await prisma.darazAlert.findMany({
       orderBy: { createdAt: "desc" },
@@ -72,10 +73,10 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});
 
 // PATCH supports BOTH single ({ id, status }) and bulk ({ ids: string[], status }).
-export async function PATCH(req: NextRequest) {
+export const PATCH = withTenant(async (req: NextRequest) => {
   try {
     const body = await req.json();
     const { id, ids, status } = body as { id?: string; ids?: string[]; status: string };
@@ -102,13 +103,13 @@ export async function PATCH(req: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Failed to update alert" }, { status: 500 });
   }
-}
+});
 
-export async function DELETE() {
+export const DELETE = withTenant(async () => {
   try {
     const deleted = await prisma.darazAlert.deleteMany({});
     return NextResponse.json({ deleted: deleted.count });
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});
