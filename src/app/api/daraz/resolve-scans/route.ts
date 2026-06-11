@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withTenant } from "@/lib/with-tenant";
 
 // INBOUND MATCH RULE (from DARAZ_SCANS_CLAIMS findings):
 // A scanned tracking matches a DarazOrderItem where EITHER
@@ -32,7 +33,7 @@ async function matchTracking(trackingNo: string) {
   return null;
 }
 
-export async function POST() {
+export const POST = withTenant(async () => {
   try {
     // Unresolved inbound-type scans: no darazOrderId yet, or flagged wrongStore.
     // Only non-deleted, only scans that carry a tracking to match on.
@@ -105,4 +106,4 @@ export async function POST() {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 200) }, { status: 500 });
   }
-}
+});

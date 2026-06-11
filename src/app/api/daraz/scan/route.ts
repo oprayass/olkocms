@@ -1,7 +1,8 @@
-﻿import { NextResponse } from 'next/server'
+import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const scans = await prisma.darazScan.findMany({
       orderBy: { createdAt: 'desc' },
@@ -11,9 +12,9 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withTenant(async (req: Request) => {
   try {
     const { darazOrderId, productName, scanType, quantity, scannedBy, notes } = await req.json()
     if (!darazOrderId || !productName || !scanType) {
@@ -39,4 +40,4 @@ export async function POST(req: Request) {
   } catch (err) {
     return NextResponse.json({ error: 'Failed to scan' }, { status: 500 })
   }
-}
+})

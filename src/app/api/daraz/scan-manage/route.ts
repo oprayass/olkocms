@@ -3,17 +3,18 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { nepalTodayStartUTC } from "@/lib/nepalTime";
+import { withTenant } from "@/lib/with-tenant";
 
 export const dynamic = "force-dynamic";
 
-// GET ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â scans list (active ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚ÂµÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¾ deleted), filter ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¹ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¿ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¤
-export async function GET(req: NextRequest) {
+// GET - scans list (active or deleted), with filters
+export const GET = withTenant(async (req: NextRequest) => {
   try {
     const scanType = req.nextUrl.searchParams.get("scanType"); // outbound | inbound
     const view = req.nextUrl.searchParams.get("view") || "active"; // active | deleted | wrongStore
     const dateFilter = req.nextUrl.searchParams.get("date"); // today | all
 
-    // 30 days ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â­ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¨ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¦ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¾ ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚ÂªÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â°ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¨ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¾ deleted auto-purge
+    // Auto-purge soft-deleted scans older than 30 days
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     await prisma.darazScan.deleteMany({
@@ -49,15 +50,15 @@ export async function GET(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});
 
-// DELETE ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â soft delete (admin only)
-export async function DELETE(req: NextRequest) {
+// DELETE - soft delete (admin only)
+export const DELETE = withTenant(async (req: NextRequest) => {
   try {
     const session = await getServerSession(authOptions);
     const role = (session?.user as any)?.role;
     if (role !== "ADMIN") {
-      return NextResponse.json({ error: "Permission denied ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â admin ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â®ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¾ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¤ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â° delete ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â°ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¨ ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤Ãƒâ€šÃ‚Â¸ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â¢ÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¥Ãƒâ€šÃ‚ÂÃƒÆ’Ã‚Â Ãƒâ€šÃ‚Â¤ÃƒÂ¢Ã¢â€šÂ¬Ã‚Âº" }, { status: 403 });
+      return NextResponse.json({ error: "Permission denied - only admin can delete" }, { status: 403 });
     }
 
     const { id } = await req.json();
@@ -76,10 +77,10 @@ export async function DELETE(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});
 
-// PATCH ÃƒÆ’Ã‚Â¢ÃƒÂ¢Ã¢â‚¬Å¡Ã‚Â¬ÃƒÂ¢Ã¢â€šÂ¬Ã‚Â undo (restore deleted scan)
-export async function PATCH(req: NextRequest) {
+// PATCH - undo (restore deleted scan)
+export const PATCH = withTenant(async (req: NextRequest) => {
   try {
     const session = await getServerSession(authOptions);
     const role = (session?.user as any)?.role;
@@ -99,4 +100,4 @@ export async function PATCH(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});
