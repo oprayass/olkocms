@@ -3,8 +3,9 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const claims = await prisma.darazClaim.findMany({
       orderBy: { createdAt: "desc" },
@@ -13,9 +14,9 @@ export async function GET() {
   } catch (error) {
     return NextResponse.json({ error: "Failed to load returns" }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withTenant(async (req: NextRequest) => {
   try {
     const session = await getServerSession(authOptions);
     const { trackingNo, quantity, returnType, notes } = await req.json();
@@ -34,7 +35,7 @@ export async function POST(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: "Failed to save return" }, { status: 500 });
   }
-}
+});
 
 // human-readable labels for log
 const FIELD_LABELS: Record<string, string> = {
@@ -57,7 +58,7 @@ function fmt(v: any): string {
 }
 
 // Update claim details + write audit log per changed field
-export async function PATCH(req: NextRequest) {
+export const PATCH = withTenant(async (req: NextRequest) => {
   try {
     const session = await getServerSession(authOptions);
     const changedBy = session?.user?.name || session?.user?.email || "unknown";
@@ -65,7 +66,6 @@ export async function PATCH(req: NextRequest) {
     const { id } = body;
     if (!id) return NextResponse.json({ error: "Claim id required" }, { status: 400 });
 
-    // existing claim (for diff)
     const before = await prisma.darazClaim.findUnique({ where: { id } });
     if (!before) return NextResponse.json({ error: "Claim not found" }, { status: 404 });
 
@@ -86,7 +86,6 @@ export async function PATCH(req: NextRequest) {
     }
     data.scannedBy = changedBy;
 
-    // diff → log entries
     const logs: { claimId: string; field: string; oldValue: string; newValue: string; changedBy: string }[] = [];
     for (const key of Object.keys(data)) {
       if (key === "scannedBy" || key === "resolvedAt") continue;
@@ -115,4 +114,4 @@ export async function PATCH(req: NextRequest) {
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 200) }, { status: 500 });
   }
-}
+});

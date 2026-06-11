@@ -1,10 +1,11 @@
 import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
+import { withTenant } from '@/lib/with-tenant'
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
-    // reconciliation-fetched orders (customerName "—") exclude गर्ने
-    // ती Orders page मा होइन, reconcile को लागि मात्र हुन्
+    // Exclude reconciliation-fetched orders (customerName em-dash);
+    // those are for reconcile only, not the Orders page.
     const orders = await prisma.darazOrder.findMany({
       where: { NOT: { customerName: "—" } },
       orderBy: { createdAt: 'desc' }
@@ -13,9 +14,9 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: 'Failed to fetch' }, { status: 500 })
   }
-}
+})
 
-export async function POST(req: Request) {
+export const POST = withTenant(async (req: Request) => {
   try {
     const data = await req.json()
     const order = await prisma.darazOrder.create({ data })
@@ -23,4 +24,4 @@ export async function POST(req: Request) {
   } catch (err) {
     return NextResponse.json({ error: 'Failed to create' }, { status: 500 })
   }
-}
+})
