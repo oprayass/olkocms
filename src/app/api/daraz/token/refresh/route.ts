@@ -84,7 +84,7 @@ export async function GET(req: NextRequest) {
         const sortedKeys = Object.keys(params).sort();
         const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
         const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
-        const res = await fetch(url, { method: "GET" });
+        const res = await fetch(url, { method: "POST" });
         const data = await res.json();
 
         if (data.access_token) {
