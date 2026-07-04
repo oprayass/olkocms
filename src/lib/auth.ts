@@ -143,5 +143,5 @@ export const authOptions: NextAuthOptions = {
   },
   pages: { signIn: "/login" },
   session: { strategy: "jwt" },
-  secret: process.env.NEXTAUTH_SECRET || "olkocms-secret-key-2024",
+  secret: process.env.NEXTAUTH_SECRET,
 }
