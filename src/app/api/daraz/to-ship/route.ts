@@ -1,6 +1,7 @@
 export const dynamic = "force-dynamic";
 import { NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
+import { withTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
@@ -37,6 +38,10 @@ const TO_SHIP_STATUSES = ["pending", "ready_to_ship", "packed"];
 
 // Incremental write into DarazOrder: new -> create, changed -> update, same -> skip.
 // Never wipes existing fields with null/undefined.
+// Runs inside the request's tenant context (withTenant), so the scoped client
+// injects subscriptionId everywhere. If the same darazOrderId exists under
+// ANOTHER tenant, the scoped findUnique sees nothing and create hits the
+// global unique constraint -> P2002 -> skip (never cross-tenant overwrite).
 async function upsertDarazOrder(o: {
   darazOrderId: string;
   customerName: string;
@@ -52,19 +57,24 @@ async function upsertDarazOrder(o: {
   });
 
   if (!existing) {
-    await prisma.darazOrder.create({
-      data: {
-        darazOrderId: o.darazOrderId,
-        customerName: o.customerName,
-        product: o.product,
-        quantity: o.quantity,
-        price: o.price,
-        status: o.status,
-        storeId: o.storeId,
-        orderDate: o.orderDate,
-      },
-    });
-    return "created";
+    try {
+      await prisma.darazOrder.create({
+        data: {
+          darazOrderId: o.darazOrderId,
+          customerName: o.customerName,
+          product: o.product,
+          quantity: o.quantity,
+          price: o.price,
+          status: o.status,
+          storeId: o.storeId,
+          orderDate: o.orderDate,
+        },
+      });
+      return "created";
+    } catch (err: any) {
+      if (err?.code === "P2002") return "skipped"; // exists under another tenant
+      throw err;
+    }
   }
 
   const changes: Record<string, unknown> = {};
@@ -88,7 +98,7 @@ async function upsertDarazOrder(o: {
   return "updated";
 }
 
-export async function GET() {
+export const GET = withTenant(async () => {
   const appKey = (process.env.DARAZ_APP_KEY || "").trim();
   const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
 
@@ -99,6 +109,7 @@ export async function GET() {
   let liveError: string | null = null;
 
   // 1) LIVE incremental pull into central DB (best-effort).
+  //    Scoped client -> only THIS tenant's stores are enumerated and synced.
   try {
     const stores = await prisma.darazStore.findMany({
       where: { isActive: true, accessToken: { not: null } },
@@ -150,6 +161,7 @@ export async function GET() {
   }
 
   // 2) ALWAYS respond from the central DB (fallback to last-known if live failed).
+  //    Scoped client -> the list only ever contains THIS tenant's orders.
   try {
     const rows = await prisma.darazOrder.findMany({
       where: { status: { in: TO_SHIP_STATUSES } },
@@ -172,4 +184,4 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 200) }, { status: 500 });
   }
-}
+});
