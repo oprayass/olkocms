@@ -135,6 +135,71 @@ async function alertExists(alertType: string, alertKey: string) {
   return !!existing;
 }
 
+// ---- Step 0: refresh Daraz tokens that expire within 7 days ----
+// Daraz access tokens live ~30 days; without this, every sync dies silently
+// ~30 days after store connect (the June 28 outage). Refresh endpoint is POST.
+// Updates BOTH the DB (inside the store's tenant scope) and the in-memory
+// store object so the rest of tonight's run uses the fresh token.
+async function refreshExpiringTokens(
+  allStores: { id: string; storeName: string | null; accessToken: string | null; refreshToken?: string | null; tokenExpiry?: Date | null }[],
+  appKey: string,
+  appSecret: string
+): Promise<{ checked: number; refreshed: number; failed: number }> {
+  const sevenDaysLater = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000);
+  let checked = 0;
+  let refreshed = 0;
+  let failed = 0;
+  for (const store of allStores) {
+    const s: any = store;
+    if (!s.refreshToken) continue;
+    if (s.tokenExpiry && new Date(s.tokenExpiry) > sevenDaysLater) continue;
+    const subId = s.subscriptionId as string | null | undefined;
+    if (!subId) continue;
+    checked++;
+    try {
+      const apiPath = "/auth/token/refresh";
+      const timestamp = Date.now().toString();
+      const params: Record<string, string> = {
+        app_key: appKey,
+        refresh_token: s.refreshToken,
+        sign_method: "sha256",
+        timestamp,
+      };
+      const sign = signRequest(apiPath, params, appSecret);
+      const sortedKeys = Object.keys(params).sort();
+      const query = sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") + `&sign=${sign}`;
+      const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
+      const res = await fetch(url, { method: "POST" });
+      const data = await res.json();
+      if (data.access_token) {
+        const tokenExpiry = new Date(Date.now() + (data.expires_in || 2592000) * 1000);
+        await withExplicitTenant(subId, () =>
+          prisma.darazStore.update({
+            where: { id: s.id },
+            data: {
+              accessToken: data.access_token,
+              refreshToken: data.refresh_token || s.refreshToken,
+              tokenExpiry,
+              isActive: true,
+              status: "Active",
+            },
+          })
+        );
+        // Keep tonight's run on the fresh token.
+        s.accessToken = data.access_token;
+        s.refreshToken = data.refresh_token || s.refreshToken;
+        s.tokenExpiry = tokenExpiry;
+        refreshed++;
+      } else {
+        failed++;
+      }
+    } catch {
+      failed++;
+    }
+  }
+  return { checked, refreshed, failed };
+}
+
 type TenantNightlyReport = {
   step1_fetch: { ordersCreated: number; ordersUpdated: number; ordersSkipped: number };
   step1b_fillTracking: { trackingItemsSaved: number; ordersChecked: number };
@@ -452,6 +517,9 @@ export async function GET(req: NextRequest) {
     const allStores = await prismaUnscoped.darazStore.findMany({
       where: { isActive: true, accessToken: { not: null } },
     });
+
+    // Step 0 runs BEFORE grouping so every tenant syncs with live tokens.
+    report.step0_tokenRefresh = await refreshExpiringTokens(allStores as any, appKey, appSecret);
 
     const byTenant = new Map<string, typeof allStores>();
     let storesWithoutTenant = 0;

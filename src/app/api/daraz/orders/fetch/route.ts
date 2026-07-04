@@ -188,11 +188,16 @@ export async function GET(req: NextRequest) {
             else sSkipped += 1;
           }
 
-          // Successful fetch -> advance lastOrderFetch (scoped update).
-          await prisma.darazStore.update({
-            where: { id: store.id },
-            data: { lastOrderFetch: fetchStart },
-          });
+          // Advance lastOrderFetch ONLY when Daraz confirms success (code "0").
+          // Advancing on failure silently skips the failed window forever
+          // (this is exactly how the June 28 token outage created a data gap).
+          const apiOk = data?.code === "0";
+          if (apiOk) {
+            await prisma.darazStore.update({
+              where: { id: store.id },
+              data: { lastOrderFetch: fetchStart },
+            });
+          }
 
           return {
             fetched: orders.length,
@@ -201,7 +206,8 @@ export async function GET(req: NextRequest) {
             skipped: sSkipped,
             incremental: !!store.lastOrderFetch,
             createdAfter,
-            error: data?.code !== "0" ? JSON.stringify(data).substring(0, 100) : null,
+            windowAdvanced: apiOk,
+            error: !apiOk ? JSON.stringify(data).substring(0, 100) : null,
           };
         });
 
