@@ -1,6 +1,9 @@
 export const dynamic = "force-dynamic";
-import { NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { NextRequest, NextResponse } from "next/server";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma, prismaUnscoped } from "@/lib/prisma";
+import { withExplicitTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
@@ -42,53 +45,66 @@ async function fetchItems(orderId: string, accessToken: string, appKey: string, 
 // otherwise the full DarazOrder list is walked (manual backfill).
 const TRACKABLE = ["ready_to_ship", "packed", "shipped", "pending"];
 
-export async function POST(req: Request) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const offset = body.offset || 0;
-    const recentOnly = body.recentOnly === true;
-    const BATCH = 4;
+type BatchResult = {
+  offset: number;
+  nextOffset: number | null;
+  total: number;
+  processed: number;
+  itemsSaved: number;
+  itemsSkipped: number;
+  done: boolean;
+  results: any[];
+};
 
-    const appKey = (process.env.DARAZ_APP_KEY || "").trim();
-    const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
+// One batch for ONE tenant. Must run inside withExplicitTenant so orders,
+// stores, and upserts are auto-scoped. The store fallback only tries THIS
+// tenant's stores - never another tenant's tokens.
+async function runBatchForTenant(
+  offset: number,
+  BATCH: number,
+  recentOnly: boolean,
+  appKey: string,
+  appSecret: string
+): Promise<BatchResult> {
+  const stores = await prisma.darazStore.findMany({
+    where: { isActive: true, accessToken: { not: null } },
+  });
+  const storeById = new Map(stores.map((s) => [s.id, s]));
 
-    const stores = await prisma.darazStore.findMany({
-      where: { isActive: true, accessToken: { not: null } },
-    });
-    const storeById = new Map(stores.map((s) => [s.id, s]));
+  const where = recentOnly ? { status: { in: TRACKABLE } } : {};
+  const total = await prisma.darazOrder.count({ where });
+  const orders = await prisma.darazOrder.findMany({
+    where,
+    orderBy: { orderDate: "desc" },
+    skip: offset,
+    take: BATCH,
+  });
 
-    const where = recentOnly ? { status: { in: TRACKABLE } } : {};
-    const total = await prisma.darazOrder.count({ where });
-    const orders = await prisma.darazOrder.findMany({
-      where,
-      orderBy: { orderDate: "desc" },
-      skip: offset,
-      take: BATCH,
-    });
+  let itemsSaved = 0;
+  let itemsSkipped = 0;
+  const results: any[] = [];
 
-    let itemsSaved = 0;
-    const results: any[] = [];
+  for (const order of orders) {
+    const orderId = order.darazOrderId;
+    let items: any[] = [];
+    let matchedStore: string | null = null;
 
-    for (const order of orders) {
-      const orderId = order.darazOrderId;
-      let items: any[] = [];
-      let matchedStore: string | null = null;
+    const primary = order.storeId ? storeById.get(order.storeId) : null;
+    const tryStores = primary ? [primary] : stores;
 
-      const primary = order.storeId ? storeById.get(order.storeId) : null;
-      const tryStores = primary ? [primary] : stores;
-
-      for (const store of tryStores) {
-        const data = await fetchItems(orderId, store.accessToken!, appKey, appSecret);
-        const d = data?.data;
-        if (data?.code === "0" && Array.isArray(d) && d.length > 0) {
-          items = d;
-          matchedStore = store.id;
-          break;
-        }
+    for (const store of tryStores) {
+      const data = await fetchItems(orderId, store.accessToken!, appKey, appSecret);
+      const d = data?.data;
+      if (data?.code === "0" && Array.isArray(d) && d.length > 0) {
+        items = d;
+        matchedStore = store.id;
+        break;
       }
+    }
 
-      for (const it of items) {
-        if (!it.order_item_id) continue;
+    for (const it of items) {
+      if (!it.order_item_id) continue;
+      try {
         await prisma.darazOrderItem.upsert({
           where: { orderItemId: String(it.order_item_id) },
           update: {
@@ -116,12 +132,101 @@ export async function POST(req: Request) {
           },
         });
         itemsSaved++;
+      } catch (err: any) {
+        if (err?.code === "P2002") itemsSkipped++; // exists under another tenant
+        else throw err;
       }
-      results.push({ orderId, matched: !!matchedStore, itemCount: items.length });
+    }
+    results.push({ orderId, matched: !!matchedStore, itemCount: items.length });
+  }
+
+  const nextOffset = offset + BATCH < total ? offset + BATCH : null;
+  return {
+    offset, nextOffset, total, processed: orders.length,
+    itemsSaved, itemsSkipped, done: nextOffset == null, results,
+  };
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    // ---- Gate: cron bearer OR logged-in dashboard session ----
+    const authHeader = req.headers.get("authorization");
+    const isCron =
+      !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
+
+    let sessionSubId: string | null = null;
+    if (!isCron) {
+      const session = await getServerSession(authOptions);
+      if (!session) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      sessionSubId = ((session.user as any)?.subscriptionId as string | null) ?? null;
+      if (!sessionSubId) {
+        return NextResponse.json(
+          { error: "No subscription bound to this account" },
+          { status: 403 }
+        );
+      }
     }
 
-    const nextOffset = offset + BATCH < total ? offset + BATCH : null;
-    return NextResponse.json({ offset, nextOffset, total, processed: orders.length, itemsSaved, done: nextOffset == null, results });
+    const body = await req.json().catch(() => ({}));
+    const offset = body.offset || 0;
+    const recentOnly = body.recentOnly === true;
+    const BATCH = 4;
+
+    const appKey = (process.env.DARAZ_APP_KEY || "").trim();
+    const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
+
+    // Session mode (the Sync button / manual backfill): single tenant,
+    // response shape unchanged.
+    if (!isCron) {
+      const r = await withExplicitTenant(sessionSubId!, () =>
+        runBatchForTenant(offset, BATCH, recentOnly, appKey, appSecret)
+      );
+      return NextResponse.json(r);
+    }
+
+    // Cron mode: run the batch for EVERY tenant with active stores
+    // (intentional unscoped read to enumerate tenants).
+    const allStores = await prismaUnscoped.darazStore.findMany({
+      where: { isActive: true, accessToken: { not: null } },
+      select: { subscriptionId: true } as any,
+    });
+    const tenantIds = Array.from(
+      new Set(allStores.map((s: any) => s.subscriptionId).filter(Boolean))
+    ) as string[];
+
+    const tenants: Record<string, unknown> = {};
+    let processed = 0;
+    let itemsSaved = 0;
+    let itemsSkipped = 0;
+    let allDone = true;
+
+    for (const subId of tenantIds) {
+      try {
+        const r = await withExplicitTenant(subId, () =>
+          runBatchForTenant(offset, BATCH, recentOnly, appKey, appSecret)
+        );
+        tenants[subId] = r;
+        processed += r.processed;
+        itemsSaved += r.itemsSaved;
+        itemsSkipped += r.itemsSkipped;
+        if (!r.done) allDone = false;
+      } catch (err) {
+        tenants[subId] = { error: String(err).substring(0, 150) };
+        allDone = false;
+      }
+    }
+
+    return NextResponse.json({
+      offset,
+      nextOffset: allDone ? null : offset + BATCH,
+      processed,
+      itemsSaved,
+      itemsSkipped,
+      done: allDone,
+      tenants,
+    });
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 300) }, { status: 500 });
   }
