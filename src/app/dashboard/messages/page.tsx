@@ -164,7 +164,7 @@ export default function MessagesPage() {
       await fetch(`/api/messages/${lastMsg.id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ replied: true, replyText }),
+        body: JSON.stringify({ replied: true, replyText, aiReplied: false }),
       })
       await logActivity('human_reply_sent', `${session?.user?.name || 'Staff'} le reply pathayeo`, lastMsg.id, false)
       setReplyText('')
