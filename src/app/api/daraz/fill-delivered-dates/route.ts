@@ -1,6 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma, prismaUnscoped } from "@/lib/prisma";
+import { withExplicitTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
@@ -47,8 +50,112 @@ function countStages(data: any): number {
   );
 }
 
+type BatchResult = {
+  success: boolean;
+  processed: number;
+  filled: number;
+  nextOffset: number;
+  done: boolean;
+};
+
+// One batch for ONE tenant. Must run inside withExplicitTenant so orders,
+// stores, and updates are all auto-scoped. The trace lookup fallback only
+// tries THIS tenant's stores - never another tenant's tokens.
+async function runBatchForTenant(
+  offset: number,
+  limit: number,
+  appKey: string,
+  appSecret: string
+): Promise<BatchResult> {
+  // ALL delivered orders (re-fill even if deliveredAt already set, to fix old wrong values)
+  const orders = await prisma.darazOrder.findMany({
+    where: { status: { in: DELIVERED_STATUSES } },
+    select: { darazOrderId: true, storeId: true },
+    take: limit,
+    skip: offset,
+    orderBy: { createdAt: "desc" },
+  });
+
+  const stores = await prisma.darazStore.findMany({
+    where: { isActive: true, accessToken: { not: null } },
+  });
+  const storeMap: Record<string, any> = {};
+  for (const s of stores) storeMap[s.id] = s;
+
+  let filled = 0;
+
+  for (const ord of orders) {
+    // try order's own store first, then this tenant's other stores
+    const tryStores =
+      ord.storeId && storeMap[ord.storeId] ? [storeMap[ord.storeId], ...stores] : stores;
+    for (const store of tryStores) {
+      try {
+        const timestamp = Date.now().toString();
+        const params: Record<string, string> = {
+          access_token: store.accessToken!,
+          app_key: appKey,
+          order_id: ord.darazOrderId,
+          sign_method: "sha256",
+          timestamp,
+        };
+        const apiPath = "/logistic/order/trace";
+        const sign = signRequest(apiPath, params, appSecret);
+        const sortedKeys = Object.keys(params).sort();
+        const query =
+          sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") +
+          `&sign=${sign}`;
+        const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
+
+        const res = await fetch(url, { method: "GET" });
+        const data = await res.json();
+
+        // does THIS store actually have the package trace? (empty = wrong store)
+        if (countStages(data) === 0) continue;
+
+        const deliveredMs = extractDeliveredTime(data);
+        if (deliveredMs) {
+          await prisma.darazOrder.update({
+            where: { darazOrderId: ord.darazOrderId },
+            data: { deliveredAt: new Date(deliveredMs) },
+          });
+          filled++;
+        }
+        break; // correct store found (delivered or not yet) - done with this order
+      } catch { /* next store */ }
+    }
+  }
+
+  return {
+    success: true,
+    processed: orders.length,
+    filled,
+    nextOffset: offset + limit,
+    done: orders.length < limit,
+  };
+}
+
 export async function POST(req: NextRequest) {
   try {
+    // ---- Gate: cron bearer OR logged-in dashboard session ----
+    const authHeader = req.headers.get("authorization");
+    const isCron =
+      !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
+
+    let sessionSubId: string | null = null;
+    if (!isCron) {
+      const session = await getServerSession(authOptions);
+      if (!session) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+      }
+      sessionSubId = ((session.user as any)?.subscriptionId as string | null) ?? null;
+      if (!sessionSubId) {
+        return NextResponse.json(
+          { error: "No subscription bound to this account" },
+          { status: 403 }
+        );
+      }
+    }
+
     const body = await req.json().catch(() => ({}));
     const offset = body.offset || 0;
     const limit = 12; // Vercel 10s timeout - small batch
@@ -56,70 +163,51 @@ export async function POST(req: NextRequest) {
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
 
-    // ALL delivered orders (re-fill even if deliveredAt already set, to fix old wrong values)
-    const orders = await prisma.darazOrder.findMany({
-      where: { status: { in: DELIVERED_STATUSES } },
-      select: { darazOrderId: true, storeId: true },
-      take: limit,
-      skip: offset,
-      orderBy: { createdAt: "desc" },
-    });
+    // Session mode (the Sync button): single tenant, response shape unchanged.
+    if (!isCron) {
+      const r = await withExplicitTenant(sessionSubId!, () =>
+        runBatchForTenant(offset, limit, appKey, appSecret)
+      );
+      return NextResponse.json(r);
+    }
 
-    const stores = await prisma.darazStore.findMany({
+    // Cron mode: run the batch for EVERY tenant with active stores
+    // (intentional unscoped read to enumerate tenants).
+    const allStores = await prismaUnscoped.darazStore.findMany({
       where: { isActive: true, accessToken: { not: null } },
+      select: { subscriptionId: true } as any,
     });
-    const storeMap: Record<string, any> = {};
-    for (const s of stores) storeMap[s.id] = s;
+    const tenantIds = Array.from(
+      new Set(allStores.map((s: any) => s.subscriptionId).filter(Boolean))
+    ) as string[];
 
+    const tenants: Record<string, unknown> = {};
+    let processed = 0;
     let filled = 0;
+    let allDone = true;
 
-    for (const ord of orders) {
-      // try order's own store first, then all stores
-      const tryStores =
-        ord.storeId && storeMap[ord.storeId] ? [storeMap[ord.storeId], ...stores] : stores;
-      for (const store of tryStores) {
-        try {
-          const timestamp = Date.now().toString();
-          const params: Record<string, string> = {
-            access_token: store.accessToken!,
-            app_key: appKey,
-            order_id: ord.darazOrderId,
-            sign_method: "sha256",
-            timestamp,
-          };
-          const apiPath = "/logistic/order/trace";
-          const sign = signRequest(apiPath, params, appSecret);
-          const sortedKeys = Object.keys(params).sort();
-          const query =
-            sortedKeys.map((k) => `${k}=${encodeURIComponent(params[k])}`).join("&") +
-            `&sign=${sign}`;
-          const url = `https://api.daraz.com.np/rest${apiPath}?${query}`;
-
-          const res = await fetch(url, { method: "GET" });
-          const data = await res.json();
-
-          // does THIS store actually have the package trace? (empty = wrong store)
-          if (countStages(data) === 0) continue;
-
-          const deliveredMs = extractDeliveredTime(data);
-          if (deliveredMs) {
-            await prisma.darazOrder.update({
-              where: { darazOrderId: ord.darazOrderId },
-              data: { deliveredAt: new Date(deliveredMs) },
-            });
-            filled++;
-          }
-          break; // correct store found (delivered or not yet) - done with this order
-        } catch { /* next store */ }
+    for (const subId of tenantIds) {
+      try {
+        const r = await withExplicitTenant(subId, () =>
+          runBatchForTenant(offset, limit, appKey, appSecret)
+        );
+        tenants[subId] = r;
+        processed += r.processed;
+        filled += r.filled;
+        if (!r.done) allDone = false;
+      } catch (err) {
+        tenants[subId] = { error: String(err).substring(0, 150) };
+        allDone = false;
       }
     }
 
     return NextResponse.json({
       success: true,
-      processed: orders.length,
+      processed,
       filled,
       nextOffset: offset + limit,
-      done: orders.length < limit,
+      done: allDone,
+      tenants,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 200) }, { status: 500 });

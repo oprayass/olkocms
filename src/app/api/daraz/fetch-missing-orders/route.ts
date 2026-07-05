@@ -1,6 +1,9 @@
 export const dynamic = "force-dynamic";
 import { NextRequest, NextResponse } from "next/server";
-import { prisma } from "@/lib/prisma";
+import { getServerSession } from "next-auth";
+import { authOptions } from "@/lib/auth";
+import { prisma, prismaUnscoped } from "@/lib/prisma";
+import { withExplicitTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
@@ -27,58 +30,70 @@ async function callDaraz(apiPath: string, extra: Record<string, string>, accessT
   return await res.json();
 }
 
-export async function POST(req: NextRequest) {
-  try {
-    const body = await req.json().catch(() => ({}));
-    const offset = parseInt(body?.offset ?? "0") || 0;
-    const batchSize = 12;
+type BatchResult = {
+  fetched: number;
+  notFound: number;
+  skipped: number;
+  offset: number;
+  processed: number;
+  totalMissing: number;
+  nextOffset: number | null;
+};
 
-    const appKey = (process.env.DARAZ_APP_KEY || "").trim();
-    const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
+// One batch for ONE tenant. Must run inside withExplicitTenant so every
+// prisma call (alerts, orders, stores, upsert) is auto-scoped. Item lookup
+// only tries THIS tenant's stores - never another tenant's tokens.
+async function runBatchForTenant(
+  offset: number,
+  batchSize: number,
+  appKey: string,
+  appSecret: string
+): Promise<BatchResult> {
+  const stores = await prisma.darazStore.findMany({
+    where: { isActive: true, accessToken: { not: null } },
+  });
 
-    const stores = await prisma.darazStore.findMany({
-      where: { isActive: true, accessToken: { not: null } },
-    });
+  // Orders referenced by "outbound_not_delivered" alerts but missing/incomplete in DarazOrder.
+  const alertOrders = await prisma.darazAlert.findMany({
+    where: { alertType: "outbound_not_delivered", darazOrderId: { not: "unknown" } },
+    select: { darazOrderId: true },
+    distinct: ["darazOrderId"],
+  });
+  const allScans = alertOrders.filter((a) => a.darazOrderId);
 
-    // "Unknown" outbound alerts भएका orders (DarazOrder मा नभएका)
-    const alertOrders = await prisma.darazAlert.findMany({
-      where: { alertType: "outbound_not_delivered", darazOrderId: { not: "unknown" } },
-      select: { darazOrderId: true },
-      distinct: ["darazOrderId"],
-    });
-    const allScans = alertOrders.filter((a) => a.darazOrderId);
+  // Skip orders that already exist AND are complete (have product, real customerName).
+  const existingOrders = await prisma.darazOrder.findMany({
+    select: { darazOrderId: true, product: true, customerName: true },
+  });
+  const existingSet = new Set(
+    existingOrders
+      .filter((o) => o.product && o.product !== "Unknown product" && o.customerName !== "\u2014")
+      .map((o) => o.darazOrderId)
+  );
+  const missingOrderIds = allScans
+    .map((s) => s.darazOrderId!)
+    .filter((id) => !existingSet.has(id));
 
-    // already DarazOrder मा भएका — तर complete (product छ, customerName "—" होइन) मात्र skip
-    const existingOrders = await prisma.darazOrder.findMany({
-      select: { darazOrderId: true, product: true, customerName: true },
-    });
-    const existingSet = new Set(
-      existingOrders
-        .filter((o) => o.product && o.product !== "Unknown product" && o.customerName !== "—")
-        .map((o) => o.darazOrderId)
-    );
-    const missingOrderIds = allScans
-      .map((s) => s.darazOrderId!)
-      .filter((id) => !existingSet.has(id));
+  const batch = missingOrderIds.slice(offset, offset + batchSize);
 
-    const batch = missingOrderIds.slice(offset, offset + batchSize);
+  let fetched = 0;
+  let notFound = 0;
+  let skipped = 0;
 
-    let fetched = 0;
-    let notFound = 0;
-
-    for (const orderId of batch) {
-      let found = false;
-      for (const store of stores) {
-        try {
-          const itemsResp = await callDaraz("/order/items/get", { order_id: orderId }, store.accessToken!, appKey, appSecret);
-          const items = itemsResp?.data || [];
-          if (items.length > 0) {
-            const it = items[0];
+  for (const orderId of batch) {
+    let found = false;
+    for (const store of stores) {
+      try {
+        const itemsResp = await callDaraz("/order/items/get", { order_id: orderId }, store.accessToken!, appKey, appSecret);
+        const items = itemsResp?.data || [];
+        if (items.length > 0) {
+          const it = items[0];
+          try {
             await prisma.darazOrder.upsert({
               where: { darazOrderId: orderId },
               create: {
                 darazOrderId: orderId,
-                customerName: "—",
+                customerName: "\u2014",
                 product: it.name || "Unknown product",
                 quantity: items.length,
                 price: parseFloat(it.paid_price) || 0,
@@ -95,24 +110,106 @@ export async function POST(req: NextRequest) {
               },
             });
             fetched++;
-            found = true;
-            break;
+          } catch (err: any) {
+            if (err?.code === "P2002") skipped++; // exists under another tenant
+            else throw err;
           }
-        } catch { /* try next store */ }
+          found = true;
+          break;
+        }
+      } catch { /* try next store */ }
+    }
+    if (!found) notFound++;
+  }
+
+  const nextOffset = offset + batchSize;
+  const hasMore = nextOffset < missingOrderIds.length;
+
+  return {
+    fetched,
+    notFound,
+    skipped,
+    offset,
+    processed: batch.length,
+    totalMissing: missingOrderIds.length,
+    nextOffset: hasMore ? nextOffset : null,
+  };
+}
+
+export async function POST(req: NextRequest) {
+  try {
+    // ---- Gate: cron bearer OR logged-in dashboard session ----
+    const authHeader = req.headers.get("authorization");
+    const isCron =
+      !!process.env.CRON_SECRET && authHeader === `Bearer ${process.env.CRON_SECRET}`;
+
+    let sessionSubId: string | null = null;
+    if (!isCron) {
+      const session = await getServerSession(authOptions);
+      if (!session) {
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
       }
-      if (!found) notFound++;
+      sessionSubId = ((session.user as any)?.subscriptionId as string | null) ?? null;
+      if (!sessionSubId) {
+        return NextResponse.json(
+          { error: "No subscription bound to this account" },
+          { status: 403 }
+        );
+      }
     }
 
-    const nextOffset = offset + batchSize;
-    const hasMore = nextOffset < missingOrderIds.length;
+    const body = await req.json().catch(() => ({}));
+    const offset = parseInt(body?.offset ?? "0") || 0;
+    const batchSize = 12;
+
+    const appKey = (process.env.DARAZ_APP_KEY || "").trim();
+    const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
+
+    // Session mode (the Sync button): single tenant, response shape unchanged.
+    if (!isCron) {
+      const r = await withExplicitTenant(sessionSubId!, () =>
+        runBatchForTenant(offset, batchSize, appKey, appSecret)
+      );
+      return NextResponse.json(r);
+    }
+
+    // Cron mode: run the batch for EVERY tenant that has active stores
+    // (intentional unscoped read to enumerate tenants). Offset applies
+    // per tenant; hasMore if any tenant still has more.
+    const allStores = await prismaUnscoped.darazStore.findMany({
+      where: { isActive: true, accessToken: { not: null } },
+      select: { subscriptionId: true } as any,
+    });
+    const tenantIds = Array.from(
+      new Set(allStores.map((s: any) => s.subscriptionId).filter(Boolean))
+    ) as string[];
+
+    const tenants: Record<string, unknown> = {};
+    const totals = { fetched: 0, notFound: 0, skipped: 0, processed: 0, totalMissing: 0 };
+    let anyMore = false;
+
+    for (const subId of tenantIds) {
+      try {
+        const r = await withExplicitTenant(subId, () =>
+          runBatchForTenant(offset, batchSize, appKey, appSecret)
+        );
+        tenants[subId] = r;
+        totals.fetched += r.fetched;
+        totals.notFound += r.notFound;
+        totals.skipped += r.skipped;
+        totals.processed += r.processed;
+        totals.totalMissing += r.totalMissing;
+        if (r.nextOffset !== null) anyMore = true;
+      } catch (err) {
+        tenants[subId] = { error: String(err).substring(0, 150) };
+      }
+    }
 
     return NextResponse.json({
-      fetched,
-      notFound,
+      ...totals,
       offset,
-      processed: batch.length,
-      totalMissing: missingOrderIds.length,
-      nextOffset: hasMore ? nextOffset : null,
+      nextOffset: anyMore ? offset + batchSize : null,
+      tenants,
     });
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 200) }, { status: 500 });
