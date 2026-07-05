@@ -40,7 +40,7 @@ export default function LoginPage() {
           <div className='space-y-4'>
             <div>
               <label className='text-gray-400 text-sm mb-1.5 block'>Email Address</label>
-              <input type='email' value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} placeholder='admin@olkocms.com' className='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500 transition-colors' />
+              <input type='email' value={email} onChange={e=>setEmail(e.target.value)} onKeyDown={e=>e.key==='Enter'&&handleLogin()} placeholder='you@example.com' className='w-full bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-4 py-3 text-sm outline-none focus:border-violet-500 transition-colors' />
             </div>
             <div>
               <label className='text-gray-400 text-sm mb-1.5 block'>Password</label>
@@ -53,15 +53,9 @@ export default function LoginPage() {
               {loading ? '⏳ Logging in...' : '🔐 Login'}
             </button>
           </div>
-          <div className='mt-6 pt-5 border-t border-gray-800'>
-            <p className='text-gray-500 text-xs text-center mb-3'>Demo credentials:</p>
-            <div className='bg-gray-800 rounded-xl p-3 text-xs space-y-1'>
-              <div className='flex justify-between'><span className='text-gray-400'>Email:</span><span className='text-violet-400 font-mono'>admin@olkocms.com</span></div>
-              <div className='flex justify-between'><span className='text-gray-400'>Password:</span><span className='text-violet-400 font-mono'>admin123</span></div>
-            </div>
-          </div>
         </div>
         <p className='text-center text-gray-600 text-xs mt-6'>OlkoCMS v1.0 • Social Commerce Platform</p>
+        <p className='text-center text-gray-600 text-xs mt-2'>Operated by Olko Multi Trade | Mahaboudha-27, Kathmandu, Nepal | +977 9848811034</p>
       </div>
     </div>
   )

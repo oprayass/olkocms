@@ -3,8 +3,8 @@ import './globals.css'
 import { Sidebar } from '@/components/dashboard/Sidebar'
 
 export const metadata: Metadata = {
-  title: 'OlkoCMS',
-  description: 'Social Commerce CMS',
+  title: 'OlkoCMS - Olko Multi Trade',
+  description: 'Social Commerce CMS by Olko Multi Trade, Mahaboudha-27, Kathmandu, Nepal',
 }
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

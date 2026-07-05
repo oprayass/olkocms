@@ -233,13 +233,14 @@ export default function PricingPage() {
           <p className="text-gray-400 mb-6">1 dinko free trial — kunai credit card chainadaina</p>
           <div className="flex items-center justify-center gap-4">
             <a href="mailto:olkocms@gmail.com?subject=Subscription Request" className="px-8 py-3 bg-violet-600 hover:bg-violet-700 rounded-xl font-medium transition-all">Get Started</a>
-            <a href="https://wa.me/9779800000000" className="px-8 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-all text-gray-300">WhatsApp garnuhos</a>
+            <a href="https://wa.me/9779848811034" className="px-8 py-3 bg-gray-800 hover:bg-gray-700 rounded-xl font-medium transition-all text-gray-300">WhatsApp garnuhos</a>
           </div>
         </div>
       </div>
 
       <footer className="border-t border-gray-800 px-6 py-6 text-center">
         <p className="text-gray-500 text-sm">2026 OlkoCMS - Made with love in Nepal</p>
+        <p className="text-gray-600 text-xs mt-2">Operated by Olko Multi Trade | Mahaboudha-27, Kathmandu, Nepal | +977 9848811034 | olkocms@gmail.com</p>
       </footer>
     </div>
   )
