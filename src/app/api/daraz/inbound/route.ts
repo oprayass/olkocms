@@ -3,10 +3,11 @@ import { prisma } from "@/lib/prisma";
 import { nepalTodayStartUTC } from "@/lib/nepalTime";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
-  const todayStart = nepalTodayStartUTC();
+    const todayStart = nepalTodayStartUTC();
     const [todayCount, totalCount, wrongStoreCount, recentScans] = await Promise.all([
       prisma.darazScan.count({ where: { scanType: "inbound", deleted: false, createdAt: { gte: todayStart } } }),
       prisma.darazScan.count({ where: { scanType: "inbound", deleted: false } }),
@@ -22,9 +23,9 @@ export async function GET() {
   } catch (err) {
     return NextResponse.json({ error: "Failed to fetch stats: " + String(err).substring(0, 120) }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withTenant(async (req: NextRequest) => {
   try {
     const session = await getServerSession(authOptions);
     const scannedBy = session?.user?.name || session?.user?.email || "unknown";
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
         : body.trackingNo;
     if (!trackingNo) return NextResponse.json({ error: "Tracking number required" }, { status: 400 });
 
-    // Duplicate check: has this trackingNo already been inbound-scanned?
+    // Duplicate check (tenant-scoped): has this trackingNo already been inbound-scanned?
     const existing = await prisma.darazScan.findFirst({
       where: { trackingNo, scanType: "inbound" },
       orderBy: { createdAt: "desc" },
@@ -58,7 +59,7 @@ export async function POST(req: NextRequest) {
     if (existing && force) {
       await prisma.darazScan.delete({ where: { id: existing.id } });
     }
-    // Wrong-store detection: is this tracking in any of our DarazClaim (Daraz returns)?
+    // Wrong-store detection (tenant-scoped): is this tracking in any of OUR DarazClaim?
     const claim = await prisma.darazClaim.findFirst({
       where: { trackingNo },
       select: { storeId: true, itemName: true, customerName: true, darazOrderId: true, price: true },
@@ -92,4 +93,4 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: "Failed to save scan: " + String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});

@@ -3,8 +3,9 @@ import { prisma } from "@/lib/prisma";
 import { getServerSession } from "next-auth";
 import { authOptions } from "@/lib/auth";
 import { nepalTodayStartUTC } from "@/lib/nepalTime";
+import { withTenant } from "@/lib/with-tenant";
 
-export async function GET() {
+export const GET = withTenant(async () => {
   try {
     const todayStart = nepalTodayStartUTC();
     const [todayCount, totalCount, recentScans] = await Promise.all([
@@ -23,9 +24,9 @@ export async function GET() {
   } catch {
     return NextResponse.json({ error: "Failed to fetch stats" }, { status: 500 });
   }
-}
+});
 
-export async function POST(req: NextRequest) {
+export const POST = withTenant(async (req: NextRequest) => {
   try {
     const session = await getServerSession(authOptions);
     const body = await req.json();
@@ -39,7 +40,7 @@ export async function POST(req: NextRequest) {
         : body.trackingNo;
     if (!trackingNo) return NextResponse.json({ error: "Tracking number required" }, { status: 400 });
 
-    // Duplicate check: has this trackingNo already been outbound-scanned?
+    // Duplicate check (tenant-scoped): has this trackingNo already been outbound-scanned?
     const existing = await prisma.darazScan.findFirst({
       where: { trackingNo, scanType: "outbound" },
       orderBy: { createdAt: "desc" },
@@ -71,4 +72,4 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: "Failed to save scan: " + String(err).substring(0, 150) }, { status: 500 });
   }
-}
+});
