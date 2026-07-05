@@ -14,6 +14,10 @@ export const GET = withTenant(async (req: Request, { params }: { params: { id: s
 export const PATCH = withTenant(async (req: Request, { params }: { params: { id: string } }) => {
   try {
     const body = await req.json()
+    // Hardening: withTenant scopes WHERE clauses but not DATA payloads.
+    // Never let a client-supplied subscriptionId ride through the update -
+    // that would be a cross-tenant reassignment vector.
+    delete (body as any).subscriptionId
     const order = await prisma.order.update({
       where: { id: params.id },
       data: body
