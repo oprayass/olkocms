@@ -361,14 +361,14 @@ export default function MessagesPage() {
                 <textarea
                   value={replyText}
                   onChange={e => setReplyText(e.target.value)}
-                  placeholder={selectedThread.unread ? "Type your reply..." : "Conversation replied ✓"}
+                  placeholder={selectedThread.unread || isHandedOff ? "Type your reply..." : "Conversation replied ✓"}
                   rows={2}
-                  disabled={!selectedThread.unread}
+                  disabled={!selectedThread.unread && !isHandedOff}
                   className="flex-1 bg-gray-800 border border-gray-700 text-white placeholder-gray-500 rounded-xl px-3 py-2 text-sm outline-none focus:border-violet-500 resize-none disabled:opacity-50"
                 />
                 <button
                   onClick={sendReply}
-                  disabled={!replyText || sending || !selectedThread.unread}
+                  disabled={!replyText || sending || (!selectedThread.unread && !isHandedOff)}
                   className="px-4 bg-violet-600 hover:bg-violet-700 disabled:opacity-40 text-white rounded-xl text-sm font-medium"
                 >
                   {sending ? '...' : 'Send'}
