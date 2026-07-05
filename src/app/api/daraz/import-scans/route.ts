@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import * as XLSX from "xlsx";
 import { resolveStoreCuid } from "@/lib/storeMap";
+import { withTenant } from "@/lib/with-tenant";
 
 export const dynamic = "force-dynamic";
 
@@ -31,7 +32,9 @@ function safeDate(val: unknown): Date | null {
   } catch { return null; }
 }
 
-export async function POST(req: NextRequest) {
+// Dashboard Import page (session route): withTenant scopes every lookup and
+// create (DarazOrder/DarazScan/DarazClaim) to the importing tenant.
+export const POST = withTenant(async (req: NextRequest) => {
   try {
     const formData = await req.formData();
     const file = formData.get("file") as File;
@@ -138,4 +141,4 @@ export async function POST(req: NextRequest) {
   } catch (err) {
     return NextResponse.json({ error: String(err).substring(0, 200) }, { status: 500 });
   }
-}
+});
