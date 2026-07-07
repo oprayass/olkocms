@@ -167,6 +167,11 @@ export async function GET(req: NextRequest) {
           const data = await res.json();
 
           const orders = data?.data?.orders || [];
+          if (orders[0]) {
+            console.log("[DARAZ_PHONE_DEBUG] keys:", Object.keys(orders[0]).join(","));
+            console.log("[DARAZ_PHONE_DEBUG] billing:", JSON.stringify(orders[0].address_billing));
+            console.log("[DARAZ_PHONE_DEBUG] shipping:", JSON.stringify(orders[0].address_shipping));
+          }
           let sCreated = 0;
           let sUpdated = 0;
           let sSkipped = 0;
