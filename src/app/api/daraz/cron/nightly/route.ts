@@ -109,6 +109,11 @@ async function fetchItemsForOrder(
 }
 
 const TRACKABLE = ["ready_to_ship", "packed", "shipped", "pending"];
+const SHIP_STAGE_STATUSES = ["pending", "ready_to_ship", "packed"];
+const TERMINAL_ITEM_STATUSES = [
+  "delivered", "canceled", "cancelled", "shipped_back", "returned",
+  "shipped_back_success", "failed_delivery",
+];
 const FAILED_STATUSES = ["shipped_back", "failed_delivery", "returned", "shipped_back_success"];
 const DELIVERED_OR_DONE = [
   "delivered", "shipped", "transit_to_ship", "shipped_back", "returned", "canceled", "cancelled",
@@ -292,6 +297,30 @@ async function runNightlyForTenant(
           },
         });
         trackingItemsSaved++;
+      }
+      // Self-heal: DarazOrder.status can go stale for terminal states when a
+      // status change lands outside the 7-day refresh window (e.g. the June 28
+      // token outage). Items fetched here always carry the live status, so if
+      // an item is terminal while the order is still ship-stage, propagate it.
+      const allItemsTerminal =
+        items.length > 0 &&
+        items.every((it: any) =>
+          TERMINAL_ITEM_STATUSES.includes(String(it.status || "").toLowerCase())
+        );
+      const terminalItem = items.find((it: any) =>
+        TERMINAL_ITEM_STATUSES.includes(String(it.status || "").toLowerCase())
+      );
+      if (terminalItem && allItemsTerminal) {
+        const ordRow = await prisma.darazOrder.findUnique({
+          where: { darazOrderId: ord.darazOrderId },
+          select: { status: true },
+        });
+        if (ordRow && SHIP_STAGE_STATUSES.includes(String(ordRow.status || "").toLowerCase())) {
+          await prisma.darazOrder.update({
+            where: { darazOrderId: ord.darazOrderId },
+            data: { status: String(terminalItem.status) },
+          });
+        }
       }
     } catch { /* skip order */ }
   }

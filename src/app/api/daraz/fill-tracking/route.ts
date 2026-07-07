@@ -44,6 +44,11 @@ async function fetchItems(orderId: string, accessToken: string, appKey: string, 
 // When body has { recentOnly: true } we restrict to these (used by Sync/cron);
 // otherwise the full DarazOrder list is walked (manual backfill).
 const TRACKABLE = ["ready_to_ship", "packed", "shipped", "pending"];
+const SHIP_STAGE_STATUSES = ["pending", "ready_to_ship", "packed"];
+const TERMINAL_ITEM_STATUSES = [
+  "delivered", "canceled", "cancelled", "shipped_back", "returned",
+  "shipped_back_success", "failed_delivery",
+];
 
 type BatchResult = {
   offset: number;
@@ -136,6 +141,24 @@ async function runBatchForTenant(
         if (err?.code === "P2002") itemsSkipped++; // exists under another tenant
         else throw err;
       }
+    }
+    // Self-heal: if a fetched item carries a terminal status while the order
+    // row is still ship-stage, propagate it (fixes list/detail status splits).
+    const allItemsTerminal =
+      items.length > 0 &&
+      items.every((it: any) =>
+        TERMINAL_ITEM_STATUSES.includes(String(it.status || "").toLowerCase())
+      );
+    const terminalItem = items.find((it: any) =>
+      TERMINAL_ITEM_STATUSES.includes(String(it.status || "").toLowerCase())
+    );
+    if (terminalItem && allItemsTerminal && SHIP_STAGE_STATUSES.includes(String(order.status || "").toLowerCase())) {
+      try {
+        await prisma.darazOrder.update({
+          where: { darazOrderId: orderId },
+          data: { status: String(terminalItem.status) },
+        });
+      } catch { /* non-fatal */ }
     }
     results.push({ orderId, matched: !!matchedStore, itemCount: items.length });
   }
