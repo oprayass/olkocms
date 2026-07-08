@@ -82,6 +82,7 @@ export const GET = withTenant(async (req: NextRequest) => {
         let orderDate = "";
         try {
           const orderResp = await callDaraz("/orders/get", { order_id: orderId }, store.accessToken!, appKey, appSecret);
+          console.log("[PHONE_DEBUG] orderResp:", JSON.stringify(orderResp));
           orderDate = orderResp?.data?.created_at || orderResp?.data?.[0]?.created_at || "";
         } catch { /* order date is optional */ }
         return NextResponse.json({
