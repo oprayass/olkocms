@@ -6,6 +6,17 @@ import { prisma, prismaUnscoped } from "@/lib/prisma";
 import { withExplicitTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
+function normalizePhone(raw: string | null | undefined): { normalized: string | null; raw: string | null } {
+  if (!raw) return { normalized: null, raw: null };
+  const cleanedRaw = String(raw).trim();
+  if (!cleanedRaw) return { normalized: null, raw: null };
+  let digits = cleanedRaw.replace(/[^0-9]/g, '');
+  if (digits.length === 13 && digits.startsWith('977')) digits = digits.slice(3);
+  if (digits.length === 11 && digits.startsWith('977')) digits = digits.slice(3);
+  const normalized = digits.length === 10 ? digits : null;
+  return { normalized, raw: cleanedRaw };
+}
+
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
   const sortedKeys = Object.keys(params).sort();
   let concat = "";
@@ -31,6 +42,8 @@ async function upsertDarazOrder(o: {
   status: string;
   storeId: string;
   orderDate: Date | null;
+  customerPhone: string | null;
+  customerPhoneRaw: string | null;
 }): Promise<"created" | "updated" | "skipped"> {
   const existing = await prisma.darazOrder.findUnique({
     where: { darazOrderId: o.darazOrderId },
@@ -48,6 +61,8 @@ async function upsertDarazOrder(o: {
           status: o.status,
           storeId: o.storeId,
           orderDate: o.orderDate,
+          customerPhone: o.customerPhone,
+          customerPhoneRaw: o.customerPhoneRaw,
         },
       });
       return "created";
@@ -68,6 +83,11 @@ async function upsertDarazOrder(o: {
     o.orderDate.getTime() !== (existing.orderDate ? existing.orderDate.getTime() : 0)
   )
     changes.orderDate = o.orderDate;
+
+  if (o.customerPhone && o.customerPhone !== existing.customerPhone)
+    changes.customerPhone = o.customerPhone;
+  if (o.customerPhoneRaw && o.customerPhoneRaw !== existing.customerPhoneRaw)
+    changes.customerPhoneRaw = o.customerPhoneRaw;
 
   if (Object.keys(changes).length === 0) return "skipped";
 
@@ -187,6 +207,24 @@ export async function GET(req: NextRequest) {
               status: o.statuses?.[0] || o.status || "unknown",
               storeId: store.id,
               orderDate: o.created_at ? new Date(o.created_at) : null,
+              customerPhone: (() => {
+                const rawPhone =
+                  o.address_shipping?.phone ||
+                  o.address_shipping?.phone2 ||
+                  o.address_billing?.phone ||
+                  o.address_billing?.phone2 ||
+                  null;
+                return normalizePhone(rawPhone).normalized;
+              })(),
+              customerPhoneRaw: (() => {
+                const rawPhone =
+                  o.address_shipping?.phone ||
+                  o.address_shipping?.phone2 ||
+                  o.address_billing?.phone ||
+                  o.address_billing?.phone2 ||
+                  null;
+                return normalizePhone(rawPhone).raw;
+              })(),
             });
             if (action === "created") sCreated += 1;
             else if (action === "updated") sUpdated += 1;

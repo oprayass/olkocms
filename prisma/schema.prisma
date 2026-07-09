@@ -193,6 +193,8 @@ model DarazOrder {
   id            String   @id @default(cuid())
   darazOrderId  String   @unique
   customerName  String
+  customerPhone    String?
+  customerPhoneRaw String?
   product       String
   quantity      Int      @default(1)
   price         Float
