@@ -4,10 +4,12 @@ import { prisma } from "@/lib/prisma";
 import { withTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
-// DIAGNOSTIC (read-only): retrieve an already-generated Daraz shipping label
-// for an order that has ALREADY been marked Ready-To-Ship (has a tracking no).
-// Proves the /order/document/get contract before we build RTS or the A5 layout.
-// No writes, no state changes. Main-admin gated, tenant-scoped via withTenant.
+// DIAGNOSTIC (read-only): confirm the raw shape of /order/items/get so we can
+// find the exact field that carries the Daraz package id (package_id vs a
+// nested `package` object). Everything below is derived from the ORDER ITEM
+// itself (tenant-scoped) - we no longer trust a `store` query param, which
+// previously fell back to the first active store and signed against the wrong
+// seller's token. No writes, no state changes.
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
   const sortedKeys = Object.keys(params).sort();
@@ -46,55 +48,73 @@ export const GET = withTenant(async (req: NextRequest) => {
     const appSecret = (process.env.DARAZ_APP_SECRET || "").trim();
 
     const orderItemId = req.nextUrl.searchParams.get("orderItemId");
-    const storeId = req.nextUrl.searchParams.get("store");
-    const docType = req.nextUrl.searchParams.get("docType") || "shippingLabel";
     if (!orderItemId) {
       return NextResponse.json({ error: "orderItemId required" }, { status: 400 });
     }
 
-    // Resolve the store (tenant-scoped): only THIS tenant's stores are visible.
-    const store = storeId
-      ? await prisma.darazStore.findFirst({ where: { id: storeId, isActive: true } })
-      : await prisma.darazStore.findFirst({ where: { isActive: true, accessToken: { not: null } } });
+    // Resolve the order item (tenant-scoped via withTenant). This single lookup
+    // gives us BOTH the correct store (its own accessToken) AND the Daraz
+    // order_id that /order/items/get needs.
+    const item = await prisma.darazOrderItem.findUnique({
+      where: { orderItemId },
+      select: { storeId: true, darazOrderId: true },
+    });
+    if (!item) {
+      return NextResponse.json({ error: "Order item not found for this tenant" }, { status: 404 });
+    }
+    if (!item.storeId) {
+      return NextResponse.json({ error: "Order item has no storeId" }, { status: 422 });
+    }
+
+    const store = await prisma.darazStore.findFirst({
+      where: { id: item.storeId, isActive: true },
+    });
     if (!store || !store.accessToken) {
       return NextResponse.json({ error: "Store not found or no token" }, { status: 404 });
     }
 
-    // Daraz expects order_item_ids as a JSON array string, e.g. "[123456]".
-    const resp = await callDaraz(
-      "/order/document/get",
-      {
-        doc_type: docType,
-        order_item_ids: JSON.stringify([Number(orderItemId)]),
-      },
+    // READ-ONLY probe. Contract mirrors every other call site exactly:
+    //   callDaraz("/order/items/get", { order_id }, token, appKey, appSecret)
+    //   -> resp.data is the items array.
+    const itemsResp = await callDaraz(
+      "/order/items/get",
+      { order_id: item.darazOrderId },
       store.accessToken,
       appKey,
       appSecret
     );
 
-    // Return the raw response so we can inspect the exact contract.
-    // If a document is present, report its shape without dumping the whole
-    // (potentially huge) base64 blob into the response.
-    const doc = resp?.data?.document;
-    const summary = doc
-      ? {
-          hasDocument: true,
-          mimeType: doc.mime_type || null,
-          documentType: doc.document_type || null,
-          fileLength: doc.file ? String(doc.file).length : 0,
-          filePreview: doc.file ? String(doc.file).substring(0, 60) : null,
-        }
-      : { hasDocument: false };
+    const items = Array.isArray(itemsResp?.data) ? itemsResp.data : [];
+    const target = items.find(
+      (it: any) => String(it?.order_item_id) === String(orderItemId)
+    );
+
+    // Surface anything package/parcel-related without dumping the whole payload.
+    const probe = (it: any) => {
+      if (!it || typeof it !== "object") return null;
+      const out: Record<string, unknown> = {};
+      for (const k of Object.keys(it)) {
+        const lk = k.toLowerCase();
+        if (lk.includes("package") || lk.includes("parcel")) out[k] = it[k];
+      }
+      return out;
+    };
 
     return NextResponse.json({
-      success: resp?.code === "0",
-      apiCode: resp?.code,
-      apiMessage: resp?.message || null,
+      success: itemsResp?.code === "0",
+      apiCode: itemsResp?.code,
+      apiMessage: itemsResp?.message || null,
       store: store.storeName,
-      orderItemId,
-      docType,
-      summary,
-      rawKeys: resp?.data ? Object.keys(resp.data) : [],
+      resolvedFromOrderItem: {
+        storeId: item.storeId,
+        darazOrderId: item.darazOrderId,
+      },
+      itemCount: items.length,
+      firstItemKeys: items[0] ? Object.keys(items[0]).sort() : [],
+      targetItemFound: !!target,
+      targetItemKeys: target ? Object.keys(target).sort() : [],
+      packageFieldsOnTarget: probe(target),
+      packageFieldsOnFirst: probe(items[0]),
     });
   } catch (error) {
     return NextResponse.json({ error: String(error).substring(0, 200) }, { status: 500 });
