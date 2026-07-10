@@ -28,6 +28,7 @@ export default function OrderDetailPopup({ orderId, tracking, storeId, onClose }
   const [items, setItems] = useState<OrderItem[]>([]);
   const [storeName, setStoreName] = useState("");
   const [orderDate, setOrderDate] = useState("");
+  const [customerPhone, setCustomerPhone] = useState<string | null>(null);
   const [error, setError] = useState("");
 
   useEffect(() => {
@@ -45,6 +46,7 @@ export default function OrderDetailPopup({ orderId, tracking, storeId, onClose }
           setItems(data.items || []);
           setStoreName(data.store || "");
           setOrderDate(data.orderDate || "");
+          setCustomerPhone(data.customerPhone || null);
         } else {
           setError(data.error || "No details found");
         }
@@ -71,6 +73,11 @@ export default function OrderDetailPopup({ orderId, tracking, storeId, onClose }
             <div>
               <h3 className="text-white font-semibold">Order #{orderId}</h3>
               {storeName && <p className="text-gray-500 text-xs">{storeName}</p>}
+              {customerPhone && (
+                <a href={"tel:" + customerPhone} className="text-green-400 text-sm font-medium hover:underline">
+                  Call: {customerPhone}
+                </a>
+              )}
               {orderDate && <p className="text-gray-500 text-xs">Ordered: {new Date(orderDate).toLocaleString()}</p>}
             </div>
           </div>

@@ -82,14 +82,23 @@ export const GET = withTenant(async (req: NextRequest) => {
         let orderDate = "";
         try {
           const orderResp = await callDaraz("/orders/get", { order_id: orderId }, store.accessToken!, appKey, appSecret);
-          console.log("[PHONE_DEBUG] orderResp:", JSON.stringify(orderResp));
           orderDate = orderResp?.data?.created_at || orderResp?.data?.[0]?.created_at || "";
         } catch { /* order date is optional */ }
+
+        // Phone comes from our own DB (captured at fetch time), not a live
+        // Daraz call — /orders/get by order_id alone fails with E018.
+        const dbOrder = await prisma.darazOrder.findUnique({
+          where: { darazOrderId: orderId },
+          select: { customerPhone: true, customerName: true },
+        });
+
         return NextResponse.json({
           success: true,
           orderId,
           store: store.storeName,
           orderDate,
+          customerPhone: dbOrder?.customerPhone || null,
+          customerName: dbOrder?.customerName || null,
           itemCount: mapped.length,
           items: mapped,
         });
