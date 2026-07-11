@@ -725,6 +725,122 @@ ${auto ? "<script>window.addEventListener('load', function () { setTimeout(funct
       });
     }
 
+    // ---- mode=doctypes / mode=doc ----
+    // We have only ever asked /order/document/get for doc_type=shippingLabel.
+    // If Daraz also serves doc_type=invoice, we should print THEIR invoice
+    // rather than compute our own: their COD figure is authoritative by
+    // definition, so it can never disagree with the label (ours did: label said
+    // COD 784.00, our computed item total said 661.00 - a ~123 shipping fee we
+    // do not hold in the DB).
+    //
+    //   ?mode=doctypes&orderItemId=<id>  -> try each doc_type, report what comes
+    //                                        back (code / message / mime / size)
+    //   ?mode=doc&orderItemId=<id>&type=invoice -> render one of them directly
+    //
+    // Read-only. Nothing is written.
+    if (mode === "doctypes" || mode === "doc") {
+      const orderItemId = req.nextUrl.searchParams.get("orderItemId");
+      if (!orderItemId) {
+        return NextResponse.json({ error: "orderItemId required" }, { status: 400 });
+      }
+
+      const item = await prisma.darazOrderItem.findUnique({
+        where: { orderItemId },
+        select: { storeId: true, darazOrderId: true, status: true },
+      });
+      if (!item || !item.storeId) {
+        return NextResponse.json({ error: "Order item not found / no storeId" }, { status: 404 });
+      }
+      const store = await prisma.darazStore.findFirst({
+        where: { id: item.storeId, isActive: true },
+      });
+      if (!store || !store.accessToken) {
+        return NextResponse.json({ error: "Store not found or no token" }, { status: 404 });
+      }
+
+      const askFor = async (docType: string) =>
+        await callDaraz(
+          "/order/document/get",
+          {
+            doc_type: docType,
+            order_item_ids: JSON.stringify([Number(orderItemId)]),
+          },
+          store.accessToken as string,
+          appKey,
+          appSecret
+        );
+
+      // ---- mode=doc : render one doc_type straight to the browser ----
+      if (mode === "doc") {
+        const type = req.nextUrl.searchParams.get("type") || "invoice";
+        const resp = await askFor(type);
+        const d = resp?.data?.document;
+        if (resp?.code !== "0" || !d?.file) {
+          return NextResponse.json(
+            {
+              error: "No document returned for that doc_type",
+              docType: type,
+              apiCode: resp?.code ?? null,
+              apiMessage: resp?.message ?? null,
+              rawData: resp?.data ?? null,
+            },
+            { status: 409 }
+          );
+        }
+        const mime = String(d.mime_type || "text/html");
+        const buf = Buffer.from(String(d.file), "base64");
+        const asSource = req.nextUrl.searchParams.get("as") === "source";
+        return new NextResponse(asSource ? buf.toString("utf8") : (buf as any), {
+          status: 200,
+          headers: {
+            "Content-Type": asSource ? "text/plain; charset=utf-8" : mime,
+            "Cache-Control": "no-store",
+            "X-Daraz-Document-Type": String(d.document_type || ""),
+            "X-Daraz-Mime-Type": mime,
+          },
+        });
+      }
+
+      // ---- mode=doctypes : which doc_types does this seller actually get? ----
+      const types = ["shippingLabel", "invoice", "carrierManifest"];
+      const results: any[] = [];
+      for (const t of types) {
+        try {
+          const resp = await askFor(t);
+          const d = resp?.data?.document;
+          let decodedPreview: string | null = null;
+          let decodedLength = 0;
+          if (d?.file) {
+            const decoded = Buffer.from(String(d.file), "base64").toString("utf8");
+            decodedLength = decoded.length;
+            decodedPreview = decoded.substring(0, 260);
+          }
+          results.push({
+            docType: t,
+            ok: resp?.code === "0" && !!d?.file,
+            apiCode: resp?.code ?? null,
+            apiMessage: resp?.message ?? null,
+            mimeType: d?.mime_type ?? null,
+            documentType: d?.document_type ?? null,
+            base64Length: d?.file ? String(d.file).length : 0,
+            decodedLength,
+            decodedPreview,
+          });
+        } catch (e) {
+          results.push({ docType: t, ok: false, error: String(e).substring(0, 120) });
+        }
+      }
+
+      return NextResponse.json({
+        mode: "doctypes",
+        orderItemId,
+        darazOrderId: item.darazOrderId,
+        store: store.storeName,
+        dbStatus: item.status,
+        results,
+      });
+    }
+
     // ---- default: single-item report (items + label attempt) ----
     const orderItemId = req.nextUrl.searchParams.get("orderItemId");
     if (!orderItemId) {
