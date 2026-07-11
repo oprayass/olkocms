@@ -89,18 +89,24 @@ export const GET = withTenant(async (req: NextRequest) => {
       return NextResponse.json({ mode: "scan", statusCounts: counts, candidates });
     }
 
-    // ---- mode=probe : read package_id live for pre-handover candidates ----
+    // ---- mode=probe : read package_id live for a GIVEN status ----
+    // Pass ?status=ready_to_ship (or packed / pending). Defaults to
+    // ready_to_ship: that is the decisive one - post-pack, pre-handover, so a
+    // package should exist. "pending" is NOT informative (no package yet).
+    // Capped at 2 items = 2 Daraz calls, safely under the Vercel 10s ceiling.
     if (mode === "probe") {
+      const status = req.nextUrl.searchParams.get("status") || "ready_to_ship";
       const candidates = await prisma.darazOrderItem.findMany({
-        where: { status: { in: PRE_HANDOVER } },
+        where: { status },
         select: { orderItemId: true, darazOrderId: true, status: true, storeId: true },
         orderBy: { createdAt: "desc" },
-        take: 3,
+        take: 2,
       });
       if (candidates.length === 0) {
         return NextResponse.json({
           mode: "probe",
-          note: "No items in pre-handover statuses. Need a live pending order to test.",
+          status,
+          note: "No items found with that status.",
           results: [],
         });
       }
@@ -141,7 +147,7 @@ export const GET = withTenant(async (req: NextRequest) => {
           trackingCode: t?.tracking_code ?? null,
         });
       }
-      return NextResponse.json({ mode: "probe", results });
+      return NextResponse.json({ mode: "probe", status, results });
     }
 
     // ---- default: single-item report (items + label attempt) ----
