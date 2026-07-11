@@ -317,6 +317,134 @@ export const GET = withTenant(async (req: NextRequest) => {
       });
     }
 
+    // ---- mode=inspect : structural report on the label HTML ----
+    // Decodes the same document as mode=render, but instead of serving it, it
+    // reads the markup and answers the four questions the A5 layout depends on:
+    //   1. Does Daraz ship an @page / @media print rule, and what size?
+    //   2. Are dimensions fixed px, or mm/pt (i.e. print-native)?
+    //   3. Are the barcode / QR / logo base64 data-URIs, or external URLs that
+    //      would break or stall when WE print the page?
+    //   4. Is there an @font-face (a barcode font would need the font file).
+    // Read-only. No writes, no state changes.
+    if (mode === "inspect") {
+      const orderItemId = req.nextUrl.searchParams.get("orderItemId");
+      if (!orderItemId) {
+        return NextResponse.json({ error: "orderItemId required for mode=inspect" }, { status: 400 });
+      }
+
+      const item = await prisma.darazOrderItem.findUnique({
+        where: { orderItemId },
+        select: { storeId: true, darazOrderId: true, status: true },
+      });
+      if (!item || !item.storeId) {
+        return NextResponse.json({ error: "Order item not found / no storeId" }, { status: 404 });
+      }
+      const store = await prisma.darazStore.findFirst({
+        where: { id: item.storeId, isActive: true },
+      });
+      if (!store || !store.accessToken) {
+        return NextResponse.json({ error: "Store not found or no token" }, { status: 404 });
+      }
+
+      const labelResp = await callDaraz(
+        "/order/document/get",
+        {
+          doc_type: "shippingLabel",
+          order_item_ids: JSON.stringify([Number(orderItemId)]),
+        },
+        store.accessToken,
+        appKey,
+        appSecret
+      );
+      const doc = labelResp?.data?.document;
+      if (labelResp?.code !== "0" || !doc?.file) {
+        return NextResponse.json(
+          {
+            error: "Daraz returned no document - order is outside the printable window",
+            apiCode: labelResp?.code ?? null,
+            apiMessage: labelResp?.message ?? null,
+          },
+          { status: 409 }
+        );
+      }
+
+      const html = Buffer.from(String(doc.file), "base64").toString("utf8");
+
+      const uniq = (re: RegExp, limit: number) => {
+        const found = html.match(re) || [];
+        return Array.from(new Set(found.map((s) => s.trim()))).slice(0, limit);
+      };
+
+      const styleBlocks = Array.from(html.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/gi)).map(
+        (m) => m[1]
+      );
+      const css = styleBlocks.join("\n");
+
+      const pageRules = Array.from(css.matchAll(/@page[^{]*\{[^}]*\}/gi)).map((m) => m[0]);
+      const mediaPrint = Array.from(css.matchAll(/@media[^{]*print[^{]*\{/gi)).map((m) => m[0]);
+      const fontFaces = Array.from(css.matchAll(/@font-face[^{]*\{[^}]*\}/gi)).map((m) =>
+        m[0].substring(0, 220)
+      );
+
+      const imgTags = html.match(/<img[^>]*>/gi) || [];
+      const images = imgTags.map((tag) => {
+        const src = (tag.match(/src\s*=\s*["']([^"']*)["']/i) || [])[1] || "";
+        const isData = src.startsWith("data:");
+        return {
+          encoding: isData ? "data-uri" : src ? "external-url" : "none",
+          mime: isData ? src.substring(5, src.indexOf(";")) : null,
+          srcPreview: isData ? src.substring(0, 45) + "..." : src,
+          srcLength: src.length,
+          widthAttr: (tag.match(/width\s*=\s*["']?([\w%.]+)/i) || [])[1] || null,
+          heightAttr: (tag.match(/height\s*=\s*["']?([\w%.]+)/i) || [])[1] || null,
+          inlineStyle: (tag.match(/style\s*=\s*["']([^"']*)["']/i) || [])[1] || null,
+        };
+      });
+
+      const cssCount = (re: RegExp) => (css.match(re) || []).length;
+
+      return NextResponse.json({
+        mode: "inspect",
+        orderItemId,
+        store: store.storeName,
+        dbStatus: item.status,
+        mimeType: doc.mime_type || null,
+        htmlLength: html.length,
+        styleBlockCount: styleBlocks.length,
+        cssLength: css.length,
+        pageRules,
+        mediaPrintBlocks: mediaPrint,
+        fontFaces,
+        unitCounts: {
+          px: cssCount(/[\d.]+px/g),
+          mm: cssCount(/[\d.]+mm/g),
+          cm: cssCount(/[\d.]+cm/g),
+          pt: cssCount(/[\d.]+pt/g),
+          inch: cssCount(/[\d.]+in\b/g),
+          percent: cssCount(/[\d.]+%/g),
+        },
+        sizeDeclarations: Array.from(
+          new Set(
+            (css.match(/(?:max-|min-)?(?:width|height)\s*:\s*[^;}"]+/gi) || []).map((s) =>
+              s.trim()
+            )
+          )
+        ).slice(0, 30),
+        bodyOrHtmlRules: Array.from(css.matchAll(/(?:^|\})\s*(?:html|body)[^{]*\{[^}]*\}/gi))
+          .map((m) => m[0].replace(/^\}/, "").trim())
+          .slice(0, 6),
+        imageCount: imgTags.length,
+        images,
+        svgCount: (html.match(/<svg/gi) || []).length,
+        scriptCount: (html.match(/<script/gi) || []).length,
+        iframeCount: (html.match(/<iframe/gi) || []).length,
+        tableCount: (html.match(/<table/gi) || []).length,
+        externalUrls: uniq(/https?:\/\/[^\s"'<>()]+/gi, 15),
+        inlineWidthAttrs: uniq(/<(?:table|td|div)[^>]*width\s*=\s*["']?[\w%.]+["']?/gi, 10),
+        headPreview: html.substring(0, 500),
+      });
+    }
+
     // ---- default: single-item report (items + label attempt) ----
     const orderItemId = req.nextUrl.searchParams.get("orderItemId");
     if (!orderItemId) {
