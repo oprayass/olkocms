@@ -239,6 +239,84 @@ export const GET = withTenant(async (req: NextRequest) => {
       });
     }
 
+    // ---- mode=render : decode the label and serve it as real HTML ----
+    // Same proven contract as mode=label (doc_type + order_item_ids). The only
+    // difference is what we do with the result: base64-decode data.document.file
+    // and return it with Content-Type: text/html, so the official Daraz label
+    // renders in a browser tab and we can see the barcode, the addresses and the
+    // true dimensions.
+    //
+    // Add &as=source to get the same bytes back as text/plain instead. That is
+    // how we learn the things the A5 layout actually depends on: whether there is
+    // an @page rule, whether widths are fixed px, whether the barcode is inline
+    // SVG / base64 img / a barcode font, and whether any asset is loaded from an
+    // external URL that would break when we print it ourselves.
+    //
+    // Still read-only: /order/document/get is a fetch, it changes nothing.
+    if (mode === "render") {
+      const orderItemId = req.nextUrl.searchParams.get("orderItemId");
+      const as = req.nextUrl.searchParams.get("as") || "html";
+      if (!orderItemId) {
+        return NextResponse.json({ error: "orderItemId required for mode=render" }, { status: 400 });
+      }
+
+      const item = await prisma.darazOrderItem.findUnique({
+        where: { orderItemId },
+        select: { storeId: true, darazOrderId: true, status: true },
+      });
+      if (!item || !item.storeId) {
+        return NextResponse.json({ error: "Order item not found / no storeId" }, { status: 404 });
+      }
+      const store = await prisma.darazStore.findFirst({
+        where: { id: item.storeId, isActive: true },
+      });
+      if (!store || !store.accessToken) {
+        return NextResponse.json({ error: "Store not found or no token" }, { status: 404 });
+      }
+
+      const labelResp = await callDaraz(
+        "/order/document/get",
+        {
+          doc_type: "shippingLabel",
+          order_item_ids: JSON.stringify([Number(orderItemId)]),
+        },
+        store.accessToken,
+        appKey,
+        appSecret
+      );
+      const doc = labelResp?.data?.document;
+
+      if (labelResp?.code !== "0" || !doc?.file) {
+        return NextResponse.json(
+          {
+            error:
+              "Daraz returned no document - the order has most likely left the printable window",
+            orderItemId,
+            store: store.storeName,
+            dbStatus: item.status,
+            apiCode: labelResp?.code ?? null,
+            apiMessage: labelResp?.message ?? null,
+          },
+          { status: 409 }
+        );
+      }
+
+      const html = Buffer.from(String(doc.file), "base64").toString("utf8");
+      const contentType =
+        as === "source" ? "text/plain; charset=utf-8" : "text/html; charset=utf-8";
+
+      return new NextResponse(html, {
+        status: 200,
+        headers: {
+          "Content-Type": contentType,
+          "Cache-Control": "no-store",
+          "X-Daraz-Mime-Type": String(doc.mime_type || ""),
+          "X-Daraz-Document-Type": String(doc.document_type || ""),
+          "X-Decoded-Length": String(html.length),
+        },
+      });
+    }
+
     // ---- default: single-item report (items + label attempt) ----
     const orderItemId = req.nextUrl.searchParams.get("orderItemId");
     if (!orderItemId) {
