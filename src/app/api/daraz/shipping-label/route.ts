@@ -841,6 +841,85 @@ ${auto ? "<script>window.addEventListener('load', function () { setTimeout(funct
       });
     }
 
+    // ---- mode=amounts : raw item objects from /order/items/get ----
+    // The invoice must show: product name, quantity (grouped by SKU), line
+    // total, and the shipping fee as its own line. The DB holds none of that
+    // reliably - DarazOrderItem.price gave 661.00 while the label's COD said
+    // 784.00, so the DB is NOT the source of truth for money.
+    //
+    // Daraz returns one row per UNIT, so quantity = how many rows share a SKU.
+    // But the money field names (paid_price / item_price / shipping_amount /
+    // voucher_amount ...) must be READ, not guessed. This dumps the raw objects
+    // so we build the invoice against the real contract.
+    //
+    // Read-only.
+    if (mode === "amounts") {
+      const orderItemId = req.nextUrl.searchParams.get("orderItemId");
+      if (!orderItemId) {
+        return NextResponse.json({ error: "orderItemId required" }, { status: 400 });
+      }
+
+      const item = await prisma.darazOrderItem.findUnique({
+        where: { orderItemId },
+        select: { storeId: true, darazOrderId: true, status: true },
+      });
+      if (!item || !item.storeId) {
+        return NextResponse.json({ error: "Order item not found / no storeId" }, { status: 404 });
+      }
+      const store = await prisma.darazStore.findFirst({
+        where: { id: item.storeId, isActive: true },
+      });
+      if (!store || !store.accessToken) {
+        return NextResponse.json({ error: "Store not found or no token" }, { status: 404 });
+      }
+
+      const itemsResp = await callDaraz(
+        "/order/items/get",
+        { order_id: item.darazOrderId },
+        store.accessToken,
+        appKey,
+        appSecret
+      );
+      const rawItems = Array.isArray(itemsResp?.data) ? itemsResp.data : [];
+
+      // every key present across all returned items, so nothing is missed
+      const allKeys = Array.from(
+        new Set(rawItems.flatMap((it: any) => Object.keys(it || {})))
+      ).sort();
+
+      // any key that smells like money or quantity, with its value
+      const moneyish = /price|amount|fee|cost|total|voucher|discount|tax|qty|quantity|shipping/i;
+      const moneyFields = rawItems.map((it: any) => {
+        const out: Record<string, any> = { order_item_id: it?.order_item_id };
+        for (const k of Object.keys(it || {})) {
+          if (moneyish.test(k)) out[k] = it[k];
+        }
+        return out;
+      });
+
+      const skuish = rawItems.map((it: any) => ({
+        order_item_id: it?.order_item_id,
+        name: it?.name ?? null,
+        sku: it?.sku ?? null,
+        shop_sku: it?.shop_sku ?? null,
+        variation: it?.variation ?? null,
+        status: it?.status ?? null,
+      }));
+
+      return NextResponse.json({
+        mode: "amounts",
+        orderItemId,
+        darazOrderId: item.darazOrderId,
+        store: store.storeName,
+        apiCode: itemsResp?.code ?? null,
+        itemCount: rawItems.length,
+        allKeys,
+        moneyFields,
+        skuish,
+        firstRawItem: rawItems[0] ?? null,
+      });
+    }
+
     // ---- default: single-item report (items + label attempt) ----
     const orderItemId = req.nextUrl.searchParams.get("orderItemId");
     if (!orderItemId) {
