@@ -150,6 +150,95 @@ export const GET = withTenant(async (req: NextRequest) => {
       return NextResponse.json({ mode: "probe", status, results });
     }
 
+    // ---- mode=label : the real test. Item is ready_to_ship and HAS a
+    // package_id. Try the documented param shapes for /order/document/get and
+    // report each, so we learn the true contract from live data instead of
+    // guessing. Read-only: document/get is a fetch, it changes nothing.
+    if (mode === "label") {
+      const orderItemId = req.nextUrl.searchParams.get("orderItemId");
+      if (!orderItemId) {
+        return NextResponse.json({ error: "orderItemId required for mode=label" }, { status: 400 });
+      }
+
+      const item = await prisma.darazOrderItem.findUnique({
+        where: { orderItemId },
+        select: { storeId: true, darazOrderId: true, status: true },
+      });
+      if (!item || !item.storeId) {
+        return NextResponse.json({ error: "Order item not found / no storeId" }, { status: 404 });
+      }
+      const store = await prisma.darazStore.findFirst({
+        where: { id: item.storeId, isActive: true },
+      });
+      if (!store || !store.accessToken) {
+        return NextResponse.json({ error: "Store not found or no token" }, { status: 404 });
+      }
+
+      // Get the live package_id.
+      const itemsResp = await callDaraz(
+        "/order/items/get",
+        { order_id: item.darazOrderId },
+        store.accessToken,
+        appKey,
+        appSecret
+      );
+      const items = Array.isArray(itemsResp?.data) ? itemsResp.data : [];
+      const t = items.find(
+        (it: any) => String(it?.order_item_id) === String(orderItemId)
+      );
+      const packageId = String(t?.package_id ?? "");
+      const liveStatus = t?.status ?? null;
+
+      if (!packageId) {
+        return NextResponse.json({
+          error: "No package_id on this item - it is outside the printable window",
+          liveStatus,
+          dbStatus: item.status,
+        }, { status: 409 });
+      }
+
+      // Three candidate param shapes.
+      const variants: Record<string, Record<string, string>> = {
+        packages_objects: { doc_type: "shippingLabel", packages: JSON.stringify([{ package_id: packageId }]) },
+        packages_ids: { doc_type: "shippingLabel", packages: JSON.stringify([packageId]) },
+        order_item_ids: { doc_type: "shippingLabel", order_item_ids: JSON.stringify([Number(orderItemId)]) },
+      };
+
+      const attempts: any[] = [];
+      for (const [name, params] of Object.entries(variants)) {
+        const resp = await callDaraz(
+          "/order/document/get",
+          params,
+          store.accessToken,
+          appKey,
+          appSecret
+        );
+        const doc = resp?.data?.document;
+        attempts.push({
+          variant: name,
+          sentParams: params,
+          apiCode: resp?.code,
+          apiMessage: resp?.message || null,
+          hasDocument: !!doc,
+          mimeType: doc?.mime_type || null,
+          documentType: doc?.document_type || null,
+          fileLength: doc?.file ? String(doc.file).length : 0,
+          filePreview: doc?.file ? String(doc.file).substring(0, 50) : null,
+        });
+      }
+
+      return NextResponse.json({
+        mode: "label",
+        orderItemId,
+        darazOrderId: item.darazOrderId,
+        store: store.storeName,
+        dbStatus: item.status,
+        liveStatus,
+        packageId,
+        attempts,
+      });
+    }
+
     // ---- default: single-item report (items + label attempt) ----
     const orderItemId = req.nextUrl.searchParams.get("orderItemId");
     if (!orderItemId) {
