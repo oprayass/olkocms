@@ -355,7 +355,13 @@ export const GET = withTenant(async (req: NextRequest) => {
       //    The label is divs; strip tags to get text in DOM order, then take the
       //    first number that follows the COD marker.
       const labelText = labelHtml.replace(/<[^>]+>/g, "\n").replace(/&nbsp;/gi, " ");
-      const codMatch = labelText.match(/COD[^0-9]{0,60}([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i);
+      // TRAP: "Non-COD" CONTAINS the substring "COD". Matching /COD/ first read a
+      // prepaid label's 0.00 as the amount payable and produced a nonsense
+      // invoice. Detect prepaid FIRST, then parse the COD figure.
+      const isPrepaid = /non[-\s]?cod/i.test(labelText);
+      const codMatch = isPrepaid
+        ? null
+        : labelText.match(/(?<!non[-\s]?)COD[^0-9]{0,60}([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i);
       const labelCod = codMatch ? Number(codMatch[1].replace(/,/g, "")) : null;
 
       // 3. neutralise the two network hazards (alicdn scripts + remote logo)
@@ -419,8 +425,13 @@ export const GET = withTenant(async (req: NextRequest) => {
       const voucher = sum((it) => Number(it?.voucher_amount));
       const tax = sum((it) => Number(it?.tax_amount));
       const computed = subtotal + shipping + tax - voucher;
-      const payable = labelCod !== null ? labelCod : computed;
-      const adjustment = Math.round((payable - computed) * 100) / 100;
+      // Prepaid: the rider collects nothing. The order total was already paid
+      // online, so there is no residual to absorb and NO adjustment line.
+      // COD: payable is whatever the label says (that is what the rider
+      // collects), and any residual becomes an explicit Adjustment so the
+      // breakdown always reconciles.
+      const payable = isPrepaid ? 0 : labelCod !== null ? labelCod : computed;
+      const adjustment = isPrepaid ? 0 : Math.round((payable - computed) * 100) / 100;
 
       const first = rawItems[0] || {};
       const shopName = String(first?.shop_id || store.storeName || "");
@@ -460,7 +471,8 @@ export const GET = withTenant(async (req: NextRequest) => {
         totRow("Shipping fee", shipping),
         voucher > 0 ? totRow("Voucher", -voucher) : "",
         tax > 0 ? totRow("Tax", tax) : "",
-        Math.abs(adjustment) >= 0.01 ? totRow("Adjustment", adjustment) : "",
+        !isPrepaid && Math.abs(adjustment) >= 0.01 ? totRow("Adjustment", adjustment) : "",
+        isPrepaid ? totRow("Order total", computed) : "",
       ]
         .filter(Boolean)
         .join("");
@@ -513,6 +525,7 @@ export const GET = withTenant(async (req: NextRequest) => {
   .pay { margin-top: 1mm; border-top: 1.3px solid #000; padding-top: 1mm; display: flex; justify-content: space-between; align-items: baseline; }
   .pay .lbl { font-size: 6.5pt; font-weight: bold; letter-spacing: .5px; }
   .pay .amt { font-size: 13pt; font-weight: bold; }
+  .paidnote { margin-top: .6mm; font-size: 6.2pt; font-weight: bold; text-align: right; letter-spacing: .3px; }
   .cust { margin-top: 1.2mm; font-size: 6.8pt; color: #222; }
   .cust b { font-size: 7.5pt; }
   .brand { position: absolute; right: 0; bottom: 0; font-size: 5.5pt; color: #aeb3b8; letter-spacing: .5px; }
@@ -552,9 +565,10 @@ export const GET = withTenant(async (req: NextRequest) => {
       <div class="side">
         <table>${totals}</table>
         <div class="pay">
-          <span class="lbl">TOTAL PAYABLE (COD)</span>
+          <span class="lbl">${isPrepaid ? "PREPAID - COLLECT NOTHING" : "TOTAL PAYABLE (COD)"}</span>
           <span class="amt">${esc(currency)} ${money(payable)}</span>
         </div>
+        ${isPrepaid ? `<div class="paidnote">Paid online. Do not collect cash.</div>` : ""}
       </div>
     </div>
     <div class="cust">
@@ -573,6 +587,7 @@ ${auto ? "<script>window.addEventListener('load',function(){setTimeout(function(
         headers: {
           "Content-Type": "text/html; charset=utf-8",
           "Cache-Control": "no-store",
+          "X-Prepaid": String(isPrepaid),
           "X-Label-COD": String(labelCod),
           "X-Computed-Total": String(computed),
           "X-Adjustment": String(adjustment),
