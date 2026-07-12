@@ -99,11 +99,20 @@ export const GET = withTenant(async (req: NextRequest) => {
 
         // items we hold but have not re-checked lately, stalest first
         const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
-        const staleItems = await prisma.darazOrderItem.findMany({
-          where: { status: { in: SHIP_STAGE }, updatedAt: { lt: cutoff } },
+        // "packed" first: it is the half-finished state, the rarest, and the most
+        // likely to be a lie (five sat here as "packed" while Daraz had already
+        // CANCELED them as duplicates). Then pending, then ready_to_ship.
+        const packedFirst = await prisma.darazOrderItem.findMany({
+          where: { status: "packed", updatedAt: { lt: cutoff } },
           orderBy: { updatedAt: "asc" },
           select: { darazOrderId: true, storeId: true },
         });
+        const theRest = await prisma.darazOrderItem.findMany({
+          where: { status: { in: ["pending", "ready_to_ship"] }, updatedAt: { lt: cutoff } },
+          orderBy: { updatedAt: "asc" },
+          select: { darazOrderId: true, storeId: true },
+        });
+        const staleItems = [...packedFirst, ...theRest];
         const staleOrderIds: string[] = [];
         for (const s of staleItems) {
           if (!staleOrderIds.includes(s.darazOrderId)) staleOrderIds.push(s.darazOrderId);

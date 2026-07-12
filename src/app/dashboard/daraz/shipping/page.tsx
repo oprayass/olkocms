@@ -35,14 +35,14 @@ const PAPERS = [
   { id: "thermal", label: "Thermal 100x150 (label only)" },
 ];
 
-type Tab = "pending" | "packed" | "notprinted" | "printed" | "all";
+type Tab = "toship" | "notprinted" | "printed" | "all";
 const MAX_BATCH = 6; // Vercel 10s ceiling: each order costs 2 Daraz calls
 
 export default function OrderProcessingPage() {
   const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
-  const [tab, setTab] = useState<Tab>("pending");
+  const [tab, setTab] = useState<Tab>("toship");
   const [storeFilter, setStoreFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [paper, setPaper] = useState("a5");
@@ -118,17 +118,19 @@ export default function OrderProcessingPage() {
     }
   };
 
+  // "packed" is Daraz's half-finished state: pack succeeded but ready-to-ship
+  // did not. It is a broken order, not a stage of the workflow - so it does not
+  // get its own tab. It lives in To Ship and shows "Resume RTS", which keeps the
+  // recovery path visible instead of stranding the item where nobody looks.
   const counts = {
-    pending: rows.filter((r) => r.status === "pending").length,
-    packed: rows.filter((r) => r.status === "packed").length,
+    toship: rows.filter((r) => r.status === "pending" || r.status === "packed").length,
     notprinted: rows.filter((r) => r.status === "ready_to_ship" && r.printCount === 0).length,
     printed: rows.filter((r) => r.printCount > 0).length,
   };
 
   const byTab = rows.filter((r) => {
     if (tab === "all") return true;
-    if (tab === "pending") return r.status === "pending";
-    if (tab === "packed") return r.status === "packed";
+    if (tab === "toship") return r.status === "pending" || r.status === "packed";
     if (tab === "notprinted") return r.status === "ready_to_ship" && r.printCount === 0;
     if (tab === "printed") return r.printCount > 0;
     return true;
@@ -185,8 +187,7 @@ export default function OrderProcessingPage() {
   };
 
   const TABS: [Tab, string][] = [
-    ["pending", `To Ship (${counts.pending})`],
-    ["packed", `Packed (${counts.packed})`],
+    ["toship", `To Ship (${counts.toship})`],
     ["notprinted", `Not Printed (${counts.notprinted})`],
     ["printed", `Printed (${counts.printed})`],
     ["all", `All (${rows.length})`],
