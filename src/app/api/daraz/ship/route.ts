@@ -389,6 +389,162 @@ export const GET = withTenant(async (req: NextRequest) => {
       });
     }
 
+    // ---------- WRITE: fulfil = pack + rts in one action ----------
+    // What the UI "Ship" button calls. Chains the two writes using the package_id
+    // that pack hands back, so the operator never has to shuttle ids by hand.
+    // Still guarded: requires &confirm=SHIP, and refuses anything whose LIVE
+    // status is not pending (or packed, in which case it resumes at rts - that
+    // is the recovery path if pack succeeded but rts failed).
+    if (mode === "fulfil") {
+      const confirm = req.nextUrl.searchParams.get("confirm") || "";
+      const allocate = req.nextUrl.searchParams.get("allocate") || "TFS";
+      const provider = req.nextUrl.searchParams.get("provider") || "";
+
+      const live = await readLive();
+      if (live.liveStatus !== "pending" && live.liveStatus !== "packed") {
+        return NextResponse.json(
+          {
+            error: "Refusing: live status must be 'pending' (or 'packed' to resume).",
+            liveStatus: live.liveStatus,
+            dbStatus: item.status,
+          },
+          { status: 409 }
+        );
+      }
+
+      if (confirm !== "SHIP") {
+        return NextResponse.json({
+          mode: "fulfil",
+          dryRun: true,
+          note: "Nothing sent. Re-run with &confirm=SHIP.",
+          orderItemId,
+          darazOrderId: item.darazOrderId,
+          store: store.storeName,
+          liveStatus: live.liveStatus,
+          plan:
+            live.liveStatus === "pending"
+              ? ["POST /order/fulfill/pack", "POST /order/package/rts"]
+              : ["POST /order/package/rts (resuming - already packed)"],
+        });
+      }
+
+      const steps: any[] = [];
+      let packageId = String(live.packageId || "");
+      let trackingNumber = "";
+      let shipmentProvider = "";
+
+      // 1. pack (skipped when resuming an already-packed item)
+      if (live.liveStatus === "pending") {
+        const packObj: any = {
+          pack_order_list: [
+            { order_id: String(item.darazOrderId), order_item_list: [String(orderItemId)] },
+          ],
+          delivery_type: "dropship",
+          shipping_allocate_type: allocate,
+        };
+        if (provider) packObj.shipment_provider_code = provider;
+
+        const packResp = await callPost(
+          "/order/fulfill/pack",
+          { packReq: JSON.stringify(packObj) },
+          token,
+          appKey,
+          appSecret
+        );
+        const pu = unwrap(packResp);
+        const packed = pu.data?.pack_order_list?.[0]?.order_item_list?.[0] ?? null;
+        const packOk = String(packed?.item_err_code ?? "") === "0";
+        packageId = String(packed?.package_id || "");
+        trackingNumber = String(packed?.tracking_number || "");
+        shipmentProvider = String(packed?.shipment_provider || "");
+
+        steps.push({
+          step: "pack",
+          ok: packOk,
+          itemErrCode: packed?.item_err_code ?? null,
+          msg: packed?.msg ?? null,
+          packageId,
+          trackingNumber,
+          shipmentProvider,
+          apiCode: pu.apiCode,
+          errorCode: pu.errorCode,
+          errorMsg: pu.errorMsg,
+        });
+
+        if (!packOk || !packageId) {
+          return NextResponse.json(
+            { mode: "fulfil", ok: false, failedAt: "pack", steps, raw: packResp },
+            { status: 502 }
+          );
+        }
+      } else {
+        steps.push({ step: "pack", skipped: true, reason: "already packed", packageId });
+      }
+
+      // 2. rts
+      const rtsResp = await callPost(
+        "/order/package/rts",
+        { readyToShipReq: JSON.stringify({ packages: [{ package_id: packageId }] }) },
+        token,
+        appKey,
+        appSecret
+      );
+      const ru = unwrap(rtsResp);
+      const pkg = ru.data?.packages?.[0] ?? null;
+      const rtsOk = String(pkg?.item_err_code ?? "") === "0";
+      steps.push({
+        step: "rts",
+        ok: rtsOk,
+        itemErrCode: pkg?.item_err_code ?? null,
+        msg: pkg?.msg ?? null,
+        packageId: pkg?.package_id ?? packageId,
+        apiCode: ru.apiCode,
+        errorCode: ru.errorCode,
+        errorMsg: ru.errorMsg,
+      });
+
+      if (!rtsOk) {
+        return NextResponse.json(
+          {
+            mode: "fulfil",
+            ok: false,
+            failedAt: "rts",
+            note: "PACKED but NOT ready-to-ship. Re-run to resume from rts.",
+            packageId,
+            steps,
+            raw: rtsResp,
+          },
+          { status: 502 }
+        );
+      }
+
+      // best-effort local status update; Daraz remains the source of truth
+      try {
+        await prisma.darazOrderItem.update({
+          where: { orderItemId },
+          data: {
+            status: "ready_to_ship",
+            ...(trackingNumber ? { trackingNo: trackingNumber } : {}),
+          },
+        });
+      } catch (e) {
+        /* non-fatal - the nightly refresh will reconcile */
+      }
+
+      return NextResponse.json({
+        mode: "fulfil",
+        ok: true,
+        orderItemId,
+        darazOrderId: item.darazOrderId,
+        store: store.storeName,
+        packageId,
+        trackingNumber,
+        shipmentProvider,
+        steps,
+        printUrl: `/api/daraz/shipping-label?mode=print&ids=${orderItemId}&paper=a5&auto=1`,
+      });
+    }
+
     // ---------- WRITE: rts (keyed on package_id) ----------
     if (mode === "rts") {
       const confirm = req.nextUrl.searchParams.get("confirm") || "";
