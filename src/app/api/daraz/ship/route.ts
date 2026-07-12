@@ -188,25 +188,53 @@ export const GET = withTenant(async (req: NextRequest) => {
     }
 
     // ---------- READ-ONLY: valid provider codes ----------
+    // The published doc says this takes getShipmentProvidersReq={"orders":[...]}.
+    // The Nepal gateway disagrees: it answered
+    //   MissingParameter: "order_item_ids" is mandatory
+    // exactly like /order/document/get did. So the NP endpoints use FLAT params,
+    // not the Lazada-style nested *Req payloads. Try every shape and report each
+    // instead of guessing. Read-only: this endpoint only lists providers.
     if (mode === "providers") {
-      const payload = JSON.stringify({ orders: [{ order_id: String(item.darazOrderId) }] });
-      const resp = await callPost(
-        "/order/shipment/providers/get",
-        { getShipmentProvidersReq: payload },
-        token,
-        appKey,
-        appSecret
-      );
-      const u = unwrap(resp);
+      const variants: Record<string, Record<string, string>> = {
+        order_item_ids: { order_item_ids: JSON.stringify([Number(orderItemId)]) },
+        order_id: { order_id: String(item.darazOrderId) },
+        req_payload: {
+          getShipmentProvidersReq: JSON.stringify({ orders: [{ order_id: String(item.darazOrderId) }] }),
+        },
+      };
+
+      const attempts: any[] = [];
+      for (const [name, params] of Object.entries(variants)) {
+        // this API is documented GET/POST - try GET, and POST as a fallback
+        const viaGet = await callGet("/order/shipment/providers/get", params, token, appKey, appSecret);
+        const g = unwrap(viaGet);
+        let viaPost: any = null;
+        let p: any = null;
+        if (g.apiCode !== "0") {
+          viaPost = await callPost("/order/shipment/providers/get", params, token, appKey, appSecret);
+          p = unwrap(viaPost);
+        }
+        const win = g.apiCode === "0" ? g : p;
+        attempts.push({
+          variant: name,
+          sentParams: params,
+          getCode: g.apiCode,
+          getMessage: g.apiMessage,
+          postCode: p?.apiCode ?? null,
+          postMessage: p?.apiMessage ?? null,
+          ok: win?.apiCode === "0",
+          shipmentProviders: win?.data?.shipment_providers ?? null,
+          shippingAllocateType: win?.data?.shipping_allocate_type ?? null,
+          data: win?.data ?? null,
+        });
+      }
+
       return NextResponse.json({
         mode: "providers",
         store: store.storeName,
+        orderItemId,
         darazOrderId: item.darazOrderId,
-        sentPayload: payload,
-        ...u,
-        shipmentProviders: u.data?.shipment_providers ?? null,
-        shippingAllocateType: u.data?.shipping_allocate_type ?? null,
-        raw: resp,
+        attempts,
       });
     }
 
