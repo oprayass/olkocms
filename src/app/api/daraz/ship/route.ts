@@ -4,46 +4,57 @@ import { prisma } from "@/lib/prisma";
 import { withTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
-// DARAZ RTS WRITE FLOW  (pack -> rts -> printable label)
+// DARAZ FULFILMENT WRITE FLOW: providers -> pack -> rts -> printable label
 //
-// CONTRACT (read off the official Daraz API Explorer, not guessed):
+// THE REAL CONTRACT (read off Daraz Documentation > Fulfillment API).
+// NOTE: these are NOT /order/pack and /order/rts. Those are different, real
+// APIs that this app is not scoped for - which is why they returned
+// InsufficientPermission. The correct paths are:
 //
-//   POST /order/pack
-//     delivery_type      REQUIRED   only "dropship" is supported
-//     order_item_ids     REQUIRED   "[1530553,1830236]"  (brackets, comma sep)
-//     shipping_provider  "optional" but the doc says MANDATORY for dropship
-//     -> data.order_items[]: order_item_id, package_id, tracking_number,
-//                            shipment_provider, purchase_order_id/number
+//   GET|POST /order/shipment/providers/get
+//     param: getShipmentProvidersReq = {"orders":[{"order_id":"..."}]}
+//     -> result.data.shipment_providers[] { name, provider_code }
+//        result.data.shipping_allocate_type  e.g. "TFS"
 //
-//   POST /order/rts
-//     delivery_type      REQUIRED   "dropship"
-//     order_item_ids     REQUIRED
-//     shipment_provider  optional
-//     tracking_number    optional, but MANDATORY for drop-shipping
-//     -> data.order_items[]
+//   POST /order/fulfill/pack
+//     param: packReq = {
+//       "pack_order_list":[{"order_id":"...","order_item_list":["<itemId>"]}],
+//       "delivery_type":"dropship",
+//       "shipment_provider_code":"<provider_code>",
+//       "shipping_allocate_type":"TFS"
+//     }
+//     -> result.data.pack_order_list[].order_item_list[] {
+//          order_item_id, item_err_code, msg, tracking_number,
+//          shipment_provider, package_id, retry }
 //
-//   TRAP: pack spells it shiPPing_provider, rts spells it shiPMent_provider.
-//   Same concept, different key. Getting it wrong fails the call.
+//   POST /order/package/rts
+//     param: readyToShipReq = {"packages":[{"package_id":"FP..."}]}
+//     -> result.data.packages[] { package_id, item_err_code, msg, retry }
 //
-//   Order of operations: pack -> take tracking_number from the pack response ->
-//   rts -> the order enters ready_to_ship -> the shipping label becomes
-//   printable via /order/document/get (see ../shipping-label).
+// So RTS is keyed on PACKAGE_ID (which pack gives us), not on item ids.
+// Responses for these fulfilment APIs nest under result.data - unlike the read
+// APIs (/order/items/get) where data is top-level. Parsed defensively below.
 //
-// SAFETY: these are the first WRITE calls in the codebase. They touch live
-// customer orders on real stores. Therefore:
-//   - every write mode DRY-RUNS by default and just echoes the exact payload
-//   - a write only fires with an explicit &confirm=PACK / &confirm=RTS
-//   - pack refuses unless the item is live-status "pending"
-//   - rts refuses unless the item is live-status "packed"
-//   - one order at a time. No bulk. No loops over stores.
+// Useful error codes: 700021 ORDER_NOT_FOUND, 700025 ORDER_ITEM_NOT_FOUND,
+// 700026 FO_ITEM_NOT_ALLOW_TO_PACK, 700001 DBS_SHIPMENT_PROVIDER_CODE_NOT_EXITS,
+// 700004 PARAM_ILLEGAL, 700000 PACKAGE_STATUS_NOT_ALLOW_TO_OP.
+//
+// SAFETY. These are the only write calls in the codebase and they touch live
+// customer orders:
+//   - packtest sends a FAKE order id. Expected: 700021 ORDER_NOT_FOUND. That
+//     proves path + signature + payload shape without touching anything real.
+//     If we get PARAM_ILLEGAL instead, our payload shape is wrong - stop.
+//   - pack and rts DRY-RUN by default and only fire with &confirm=PACK / =RTS
+//   - pack refuses unless the item's LIVE status is "pending"
+//   - rts refuses unless the item's LIVE status is "packed" and it has a package_id
+//   - one item at a time. No bulk. No loops over stores.
 //
 // Modes:
-//   ?mode=providers&orderItemId=   valid shipping_provider values (READ-ONLY)
-//   ?mode=signtest&orderItemId=    POST signing check using order_item_ids=[0]
-//                                  (item 0 does not exist -> cannot pack)
-//   ?mode=pack&orderItemId=&provider=NAME[&confirm=PACK]
-//   ?mode=rts&orderItemId=[&confirm=RTS]
-//   ?mode=status&orderItemId=      live status / package_id / tracking (READ-ONLY)
+//   ?mode=status&orderItemId=          live state (READ-ONLY)
+//   ?mode=providers&orderItemId=       valid provider_code list (READ-ONLY)
+//   ?mode=packtest&orderItemId=&provider=CODE   fake-order probe (SAFE)
+//   ?mode=pack&orderItemId=&provider=CODE[&confirm=PACK]
+//   ?mode=rts&orderItemId=[&packageId=FP...][&confirm=RTS]
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
   const sortedKeys = Object.keys(params).sort();
@@ -54,7 +65,7 @@ function signRequest(apiPath: string, params: Record<string, string>, appSecret:
 
 const BASE = "https://api.daraz.com.np/rest";
 
-async function callDarazGet(
+async function callGet(
   apiPath: string,
   extra: Record<string, string>,
   accessToken: string,
@@ -78,9 +89,11 @@ async function callDarazGet(
   return await res.json();
 }
 
-// POST: same HMAC over ALL params, but the params travel in a
-// x-www-form-urlencoded body (this is what the official IOP SDK does).
-async function callDarazPost(
+// POST: HMAC over ALL params (system + business), business params travel in the
+// form body. This is what the IOP SDK does (commonParams -> urlQuery,
+// bizParams -> body). Our earlier POST reached Daraz's authorisation layer, so
+// the signing itself is already proven correct.
+async function callPost(
   apiPath: string,
   extra: Record<string, string>,
   accessToken: string,
@@ -104,6 +117,20 @@ async function callDarazPost(
   return await res.json();
 }
 
+// fulfilment APIs nest under result.data; read APIs put data at top level
+function unwrap(resp: any) {
+  const result = resp?.result ?? null;
+  return {
+    data: result?.data ?? resp?.data ?? null,
+    success: result?.success ?? null,
+    errorCode: result?.error_code ?? null,
+    errorMsg: result?.error_msg ?? null,
+    apiCode: resp?.code ?? null,
+    apiMessage: resp?.message ?? null,
+    requestId: resp?.request_id ?? null,
+  };
+}
+
 async function resolveItemAndStore(orderItemId: string) {
   const item = await prisma.darazOrderItem.findUnique({
     where: { orderItemId },
@@ -124,7 +151,7 @@ export const GET = withTenant(async (req: NextRequest) => {
 
     if (!orderItemId) {
       return NextResponse.json(
-        { error: "orderItemId required. Modes: providers | signtest | status | pack | rts" },
+        { error: "orderItemId required. Modes: status | providers | packtest | pack | rts" },
         { status: 400 }
       );
     }
@@ -134,43 +161,20 @@ export const GET = withTenant(async (req: NextRequest) => {
     const { item, store } = r;
     const token = store.accessToken as string;
 
-    // live truth about this item (DB status can be stale)
     const readLive = async () => {
-      const resp = await callDarazGet(
-        "/order/items/get",
-        { order_id: item.darazOrderId },
-        token,
-        appKey,
-        appSecret
-      );
+      const resp = await callGet("/order/items/get", { order_id: item.darazOrderId }, token, appKey, appSecret);
       const items = Array.isArray(resp?.data) ? resp.data : [];
       const t = items.find((it: any) => String(it?.order_item_id) === String(orderItemId));
       return {
-        apiCode: resp?.code ?? null,
         liveStatus: t?.status ?? null,
         packageId: t?.package_id ?? null,
         trackingCode: t?.tracking_code ?? null,
         shipmentProvider: t?.shipment_provider ?? null,
         shippingType: t?.shipping_type ?? null,
-        deliveryOptionSof: t?.delivery_option_sof ?? null,
-        isDigital: t?.is_digital ?? null,
-        raw: t ?? null,
       };
     };
 
-    // ---- READ-ONLY: what shipping_provider values are actually valid? ----
-    if (mode === "providers") {
-      const resp = await callDarazGet("/shipment/providers/get", {}, token, appKey, appSecret);
-      return NextResponse.json({
-        mode: "providers",
-        store: store.storeName,
-        apiCode: resp?.code ?? null,
-        apiMessage: resp?.message ?? null,
-        data: resp?.data ?? null,
-      });
-    }
-
-    // ---- READ-ONLY: live state of this item ----
+    // ---------- READ-ONLY: live state ----------
     if (mode === "status") {
       const live = await readLive();
       return NextResponse.json({
@@ -183,52 +187,86 @@ export const GET = withTenant(async (req: NextRequest) => {
       });
     }
 
-    // ---- SAFE: does our POST signing work at all? ----
-    // order_item_ids=[0] cannot match a real item, so nothing can be packed.
-    // If we get a BUSINESS error back (not InvalidSignature / IncompleteSignature),
-    // the signature is correct and POST is wired up properly.
-    if (mode === "signtest") {
-      const provider = req.nextUrl.searchParams.get("provider") || "";
-      const payload: Record<string, string> = {
-        delivery_type: "dropship",
-        order_item_ids: "[0]",
-      };
-      if (provider) payload.shipping_provider = provider;
-
-      const resp = await callDarazPost("/order/pack", payload, token, appKey, appSecret);
-      const code = String(resp?.code ?? "");
-      const signatureBroken = /sign|Signature/i.test(String(resp?.message || "")) || code === "IncompleteSignature";
+    // ---------- READ-ONLY: valid provider codes ----------
+    if (mode === "providers") {
+      const payload = JSON.stringify({ orders: [{ order_id: String(item.darazOrderId) }] });
+      const resp = await callPost(
+        "/order/shipment/providers/get",
+        { getShipmentProvidersReq: payload },
+        token,
+        appKey,
+        appSecret
+      );
+      const u = unwrap(resp);
       return NextResponse.json({
-        mode: "signtest",
+        mode: "providers",
         store: store.storeName,
-        sentTo: "POST /order/pack",
+        darazOrderId: item.darazOrderId,
         sentPayload: payload,
-        apiCode: resp?.code ?? null,
-        apiType: resp?.type ?? null,
-        apiMessage: resp?.message ?? null,
-        verdict: signatureBroken
-          ? "SIGNING IS BROKEN - fix before any real write"
-          : "signing OK (error is business-level, as expected for item 0)",
-        raw: resp ?? null,
+        ...u,
+        shipmentProviders: u.data?.shipment_providers ?? null,
+        shippingAllocateType: u.data?.shipping_allocate_type ?? null,
+        raw: resp,
       });
     }
 
-    // ---- WRITE: pack ----
-    if (mode === "pack") {
+    // ---------- SAFE: fake-order probe ----------
+    // A non-existent order id cannot be packed. Expected: 700021 ORDER_NOT_FOUND.
+    // That proves path + signature + payload SHAPE are all correct.
+    // PARAM_ILLEGAL (700004) instead would mean our shape is wrong -> stop.
+    if (mode === "packtest") {
       const provider = req.nextUrl.searchParams.get("provider") || "";
-      const confirm = req.nextUrl.searchParams.get("confirm") || "";
-      const live = await readLive();
-
+      const allocate = req.nextUrl.searchParams.get("allocate") || "TFS";
       if (!provider) {
         return NextResponse.json(
-          { error: "provider required. Run ?mode=providers first and pass &provider=<exact value>" },
+          { error: "provider required. Run ?mode=providers first, then pass &provider=<provider_code>" },
           { status: 400 }
         );
       }
+      const payload = JSON.stringify({
+        pack_order_list: [{ order_id: "1", order_item_list: ["1"] }],
+        delivery_type: "dropship",
+        shipment_provider_code: provider,
+        shipping_allocate_type: allocate,
+      });
+      const resp = await callPost("/order/fulfill/pack", { packReq: payload }, token, appKey, appSecret);
+      const u = unwrap(resp);
+      const verdict =
+        u.apiCode === "InsufficientPermission"
+          ? "STILL NO PERMISSION - do not proceed"
+          : /700021|not found/i.test(String(u.errorCode || "") + String(u.errorMsg || ""))
+          ? "PERFECT - path, signature and payload shape are all correct (fake order rejected as not found)"
+          : /700004|illegal|param/i.test(String(u.errorCode || "") + String(u.errorMsg || ""))
+          ? "PAYLOAD SHAPE IS WRONG - fix before any real pack"
+          : "unexpected - read the raw response before proceeding";
+      return NextResponse.json({
+        mode: "packtest",
+        note: "Sent a FAKE order id. Nothing real was touched.",
+        store: store.storeName,
+        sentPayload: payload,
+        verdict,
+        ...u,
+        raw: resp,
+      });
+    }
+
+    // ---------- WRITE: pack ----------
+    if (mode === "pack") {
+      const provider = req.nextUrl.searchParams.get("provider") || "";
+      const allocate = req.nextUrl.searchParams.get("allocate") || "TFS";
+      const confirm = req.nextUrl.searchParams.get("confirm") || "";
+      if (!provider) {
+        return NextResponse.json(
+          { error: "provider required. Run ?mode=providers first, then pass &provider=<provider_code>" },
+          { status: 400 }
+        );
+      }
+
+      const live = await readLive();
       if (live.liveStatus !== "pending") {
         return NextResponse.json(
           {
-            error: "Refusing to pack: this item is not live-status 'pending'.",
+            error: "Refusing to pack: live status is not 'pending'.",
             liveStatus: live.liveStatus,
             dbStatus: item.status,
           },
@@ -236,113 +274,110 @@ export const GET = withTenant(async (req: NextRequest) => {
         );
       }
 
-      const payload: Record<string, string> = {
+      const payload = JSON.stringify({
+        pack_order_list: [
+          { order_id: String(item.darazOrderId), order_item_list: [String(orderItemId)] },
+        ],
         delivery_type: "dropship",
-        order_item_ids: `[${Number(orderItemId)}]`,
-        shipping_provider: provider,
-      };
+        shipment_provider_code: provider,
+        shipping_allocate_type: allocate,
+      });
 
       if (confirm !== "PACK") {
         return NextResponse.json({
           mode: "pack",
           dryRun: true,
-          note: "Nothing was sent. Re-run with &confirm=PACK to actually pack this order item.",
+          note: "Nothing was sent. Re-run with &confirm=PACK to pack this order item for real.",
           store: store.storeName,
           orderItemId,
           darazOrderId: item.darazOrderId,
           liveStatus: live.liveStatus,
-          wouldSend: { method: "POST", path: "/order/pack", payload },
+          wouldSend: { method: "POST", path: "/order/fulfill/pack", packReq: JSON.parse(payload) },
         });
       }
 
-      const resp = await callDarazPost("/order/pack", payload, token, appKey, appSecret);
-      const packed = resp?.data?.order_items?.[0] ?? null;
+      const resp = await callPost("/order/fulfill/pack", { packReq: payload }, token, appKey, appSecret);
+      const u = unwrap(resp);
+      const packedItem = u.data?.pack_order_list?.[0]?.order_item_list?.[0] ?? null;
+      const ok = String(packedItem?.item_err_code ?? "") === "0";
       return NextResponse.json({
         mode: "pack",
         dryRun: false,
-        sentPayload: payload,
-        apiCode: resp?.code ?? null,
-        apiMessage: resp?.message ?? null,
-        ok: resp?.code === "0",
-        packageId: packed?.package_id ?? null,
-        trackingNumber: packed?.tracking_number ?? null,
-        shipmentProvider: packed?.shipment_provider ?? null,
-        nextStep:
-          resp?.code === "0"
-            ? `?mode=rts&orderItemId=${orderItemId}&confirm=RTS`
-            : "pack failed - do not proceed to rts",
-        raw: resp ?? null,
+        sentPayload: JSON.parse(payload),
+        ok,
+        itemErrCode: packedItem?.item_err_code ?? null,
+        itemMsg: packedItem?.msg ?? null,
+        packageId: packedItem?.package_id ?? null,
+        trackingNumber: packedItem?.tracking_number ?? null,
+        shipmentProvider: packedItem?.shipment_provider ?? null,
+        ...u,
+        nextStep: ok
+          ? `?mode=rts&orderItemId=${orderItemId}&packageId=${packedItem?.package_id}&confirm=RTS`
+          : "pack failed - do NOT proceed to rts",
+        raw: resp,
       });
     }
 
-    // ---- WRITE: rts ----
+    // ---------- WRITE: rts (keyed on package_id) ----------
     if (mode === "rts") {
       const confirm = req.nextUrl.searchParams.get("confirm") || "";
       const live = await readLive();
+      const packageId = req.nextUrl.searchParams.get("packageId") || String(live.packageId || "");
 
       if (live.liveStatus !== "packed") {
         return NextResponse.json(
           {
-            error: "Refusing to RTS: this item is not live-status 'packed'. Pack it first.",
+            error: "Refusing to RTS: live status is not 'packed'. Pack it first.",
             liveStatus: live.liveStatus,
             dbStatus: item.status,
           },
           { status: 409 }
         );
       }
-
-      // tracking_number is mandatory for drop-shipping. It comes from pack.
-      const tracking =
-        req.nextUrl.searchParams.get("tracking") || String(live.trackingCode || "");
-      if (!tracking) {
+      if (!packageId) {
         return NextResponse.json(
-          {
-            error:
-              "No tracking number available. It should have come back from pack. Pass &tracking=<value> explicitly if you have it.",
-            live,
-          },
+          { error: "No package_id. It comes back from pack. Pass &packageId=FP... if you have it.", live },
           { status: 409 }
         );
       }
 
-      const payload: Record<string, string> = {
-        delivery_type: "dropship",
-        order_item_ids: `[${Number(orderItemId)}]`,
-        tracking_number: tracking,
-      };
-      const shipProv = req.nextUrl.searchParams.get("provider") || "";
-      if (shipProv) payload.shipment_provider = shipProv; // NB: shipMENT here, not shipPING
+      const payload = JSON.stringify({ packages: [{ package_id: packageId }] });
 
       if (confirm !== "RTS") {
         return NextResponse.json({
           mode: "rts",
           dryRun: true,
-          note: "Nothing was sent. Re-run with &confirm=RTS to actually mark this ready to ship.",
+          note: "Nothing was sent. Re-run with &confirm=RTS to mark ready-to-ship for real.",
           store: store.storeName,
           orderItemId,
+          packageId,
           liveStatus: live.liveStatus,
-          wouldSend: { method: "POST", path: "/order/rts", payload },
+          wouldSend: { method: "POST", path: "/order/package/rts", readyToShipReq: JSON.parse(payload) },
         });
       }
 
-      const resp = await callDarazPost("/order/rts", payload, token, appKey, appSecret);
+      const resp = await callPost("/order/package/rts", { readyToShipReq: payload }, token, appKey, appSecret);
+      const u = unwrap(resp);
+      const pkg = u.data?.packages?.[0] ?? null;
+      const ok = String(pkg?.item_err_code ?? "") === "0";
       return NextResponse.json({
         mode: "rts",
         dryRun: false,
-        sentPayload: payload,
-        apiCode: resp?.code ?? null,
-        apiMessage: resp?.message ?? null,
-        ok: resp?.code === "0",
-        nextStep:
-          resp?.code === "0"
-            ? `/api/daraz/shipping-label?mode=compose&orderItemId=${orderItemId}`
-            : "rts failed - label will not be printable",
-        raw: resp ?? null,
+        sentPayload: JSON.parse(payload),
+        ok,
+        itemErrCode: pkg?.item_err_code ?? null,
+        itemMsg: pkg?.msg ?? null,
+        packageId: pkg?.package_id ?? packageId,
+        ...u,
+        nextStep: ok
+          ? `/api/daraz/shipping-label?mode=compose&orderItemId=${orderItemId}`
+          : "rts failed - the label will not be printable",
+        raw: resp,
       });
     }
 
     return NextResponse.json(
-      { error: "Unknown mode. Use: providers | status | signtest | pack | rts" },
+      { error: "Unknown mode. Use: status | providers | packtest | pack | rts" },
       { status: 400 }
     );
   } catch (error) {
