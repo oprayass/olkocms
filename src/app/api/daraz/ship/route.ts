@@ -319,16 +319,17 @@ export const GET = withTenant(async (req: NextRequest) => {
     }
 
     // ---------- WRITE: pack ----------
+    // shipment_provider_code is OMITTED by default. Proven on two orders across
+    // two stores: /order/shipment/providers/get returns
+    //   { platform_default: 1, shipment_providers: [], shipping_allocate_type: "TFS" }
+    // i.e. there is no provider list to choose from - Daraz allocates the courier
+    // itself (which is why every order already reads "Drop-off: NP-DEX"). The
+    // doc's "mandatory for dropship" does not apply to a platform-allocated
+    // seller. Pass &provider=CODE to override if that ever changes.
     if (mode === "pack") {
       const provider = req.nextUrl.searchParams.get("provider") || "";
       const allocate = req.nextUrl.searchParams.get("allocate") || "TFS";
       const confirm = req.nextUrl.searchParams.get("confirm") || "";
-      if (!provider) {
-        return NextResponse.json(
-          { error: "provider required. Run ?mode=providers first, then pass &provider=<provider_code>" },
-          { status: 400 }
-        );
-      }
 
       const live = await readLive();
       if (live.liveStatus !== "pending") {
@@ -342,45 +343,47 @@ export const GET = withTenant(async (req: NextRequest) => {
         );
       }
 
-      const payload = JSON.stringify({
+      const packObj: any = {
         pack_order_list: [
           { order_id: String(item.darazOrderId), order_item_list: [String(orderItemId)] },
         ],
         delivery_type: "dropship",
-        shipment_provider_code: provider,
         shipping_allocate_type: allocate,
-      });
+      };
+      if (provider) packObj.shipment_provider_code = provider;
+      const payload = JSON.stringify(packObj);
 
       if (confirm !== "PACK") {
         return NextResponse.json({
           mode: "pack",
           dryRun: true,
-          note: "Nothing was sent. Re-run with &confirm=PACK to pack this order item for real.",
+          note: "Nothing was sent. Re-run with &confirm=PACK to pack this order item FOR REAL.",
           store: store.storeName,
           orderItemId,
           darazOrderId: item.darazOrderId,
           liveStatus: live.liveStatus,
-          wouldSend: { method: "POST", path: "/order/fulfill/pack", packReq: JSON.parse(payload) },
+          providerCodeSent: provider || "(omitted - Daraz allocates)",
+          wouldSend: { method: "POST", path: "/order/fulfill/pack", packReq: packObj },
         });
       }
 
       const resp = await callPost("/order/fulfill/pack", { packReq: payload }, token, appKey, appSecret);
       const u = unwrap(resp);
-      const packedItem = u.data?.pack_order_list?.[0]?.order_item_list?.[0] ?? null;
-      const ok = String(packedItem?.item_err_code ?? "") === "0";
+      const packed = u.data?.pack_order_list?.[0]?.order_item_list?.[0] ?? null;
+      const ok = String(packed?.item_err_code ?? "") === "0";
       return NextResponse.json({
         mode: "pack",
         dryRun: false,
-        sentPayload: JSON.parse(payload),
+        sentPayload: packObj,
         ok,
-        itemErrCode: packedItem?.item_err_code ?? null,
-        itemMsg: packedItem?.msg ?? null,
-        packageId: packedItem?.package_id ?? null,
-        trackingNumber: packedItem?.tracking_number ?? null,
-        shipmentProvider: packedItem?.shipment_provider ?? null,
+        itemErrCode: packed?.item_err_code ?? null,
+        itemMsg: packed?.msg ?? null,
+        packageId: packed?.package_id ?? null,
+        trackingNumber: packed?.tracking_number ?? null,
+        shipmentProvider: packed?.shipment_provider ?? null,
         ...u,
         nextStep: ok
-          ? `?mode=rts&orderItemId=${orderItemId}&packageId=${packedItem?.package_id}&confirm=RTS`
+          ? `?mode=rts&orderItemId=${orderItemId}&packageId=${packed?.package_id}&confirm=RTS`
           : "pack failed - do NOT proceed to rts",
         raw: resp,
       });
