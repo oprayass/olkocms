@@ -95,6 +95,245 @@ async function resolveItemAndStore(orderItemId: string) {
   return { item, store } as const;
 }
 
+// ============================================================================
+// SHEET BUILDER - shared by mode=compose (one order) and mode=print (batch).
+// Returns the label HTML (de-hazarded) + the invoice HTML for one order item.
+// ============================================================================
+type SheetOpts = { appKey: string; appSecret: string; logoCache: Map<string, string> };
+
+async function buildSheet(orderItemId: string, o: SheetOpts) {
+  const r = await resolveItemAndStore(orderItemId);
+  if ("error" in r) return { error: r.error, orderItemId };
+  const { item, store } = r;
+  const token = store.accessToken as string;
+
+  const labelResp = await callDaraz(
+    "/order/document/get",
+    { doc_type: "shippingLabel", order_item_ids: JSON.stringify([Number(orderItemId)]) },
+    token,
+    o.appKey,
+    o.appSecret
+  );
+  const doc = labelResp?.data?.document;
+  if (labelResp?.code !== "0" || !doc?.file) {
+    return {
+      error: "No label - the order must be ready_to_ship to be printable",
+      orderItemId,
+      apiCode: labelResp?.code ?? null,
+      apiMessage: labelResp?.message ?? null,
+    };
+  }
+  let labelHtml = Buffer.from(String(doc.file), "base64").toString("utf8");
+
+  // read COD off the label BEFORE stripping markup. "Non-COD" contains "COD" -
+  // detect prepaid first or a prepaid 0.00 gets read as the payable amount.
+  const labelText = labelHtml.replace(/<[^>]+>/g, "\n").replace(/&nbsp;/gi, " ");
+  const isPrepaid = /non[-\s]?cod/i.test(labelText);
+  const codMatch = isPrepaid
+    ? null
+    : labelText.match(/(?<!non[-\s]?)COD[^0-9]{0,60}([0-9][0-9,]*(?:\.[0-9]{1,2})?)/i);
+  const labelCod = codMatch ? Number(codMatch[1].replace(/,/g, "")) : null;
+
+  // kill the network hazards: alicdn scripts + the remote shop logo
+  labelHtml = labelHtml.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<meta[^>]*>/gi, "");
+  const remoteSrcs = Array.from(
+    new Set(
+      (labelHtml.match(/src\s*=\s*["']https?:\/\/[^"']+["']/gi) || [])
+        .map((s) => (s.match(/["']([^"']+)["']/) || [])[1])
+        .filter(Boolean) as string[]
+    )
+  ).slice(0, 5);
+  for (const url of remoteSrcs) {
+    try {
+      let dataUri = o.logoCache.get(url);
+      if (!dataUri) {
+        const res = await fetch(url);
+        const ct = res.headers.get("content-type") || "image/png";
+        const buf = Buffer.from(await res.arrayBuffer());
+        dataUri = `data:${ct};base64,${buf.toString("base64")}`;
+        o.logoCache.set(url, dataUri);
+      }
+      labelHtml = labelHtml.split(url).join(dataUri);
+    } catch (e) {
+      /* leave the remote URL rather than break the label */
+    }
+  }
+
+  // authoritative amounts from Daraz, not from our DB
+  const itemsResp = await callDaraz(
+    "/order/items/get",
+    { order_id: item.darazOrderId },
+    token,
+    o.appKey,
+    o.appSecret
+  );
+  const rawItems: any[] = Array.isArray(itemsResp?.data) ? itemsResp.data : [];
+
+  type Line = { name: string; variation: string; qty: number; unit: number; amount: number };
+  const groups = new Map<string, Line>();
+  for (const it of rawItems) {
+    const key = String(it?.shop_sku || it?.sku || it?.name || "?");
+    const paid = Number(it?.paid_price) || 0;
+    const g = groups.get(key);
+    if (g) {
+      g.qty += 1;
+      g.amount += paid;
+    } else {
+      groups.set(key, {
+        name: String(it?.name || "-"),
+        variation: String(it?.variation || ""),
+        qty: 1,
+        unit: paid,
+        amount: paid,
+      });
+    }
+  }
+  const lines = Array.from(groups.values());
+  const sum = (f: (it: any) => number) => rawItems.reduce((s, it) => s + (f(it) || 0), 0);
+  const subtotal = lines.reduce((s, l) => s + l.amount, 0);
+  const shipping = sum((it) => Number(it?.shipping_amount));
+  const voucher = sum((it) => Number(it?.voucher_amount));
+  const tax = sum((it) => Number(it?.tax_amount));
+  const computed = subtotal + shipping + tax - voucher;
+  const payable = isPrepaid ? 0 : labelCod !== null ? labelCod : computed;
+  const adjustment = isPrepaid ? 0 : Math.round((payable - computed) * 100) / 100;
+
+  const first = rawItems[0] || {};
+  const shopName = String(first?.shop_id || store.storeName || "");
+  const tracking = String(first?.tracking_code || "");
+  const currency = String(first?.currency || "NPR");
+  const orderRow = await prisma.darazOrder.findUnique({ where: { darazOrderId: item.darazOrderId } });
+  const orderDate = orderRow?.orderDate
+    ? new Date(orderRow.orderDate).toLocaleDateString("en-GB", { day: "2-digit", month: "short", year: "numeric" })
+    : "";
+
+  const esc = (v: any) =>
+    String(v ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const money = (n: number) => (isNaN(n) ? "-" : n.toFixed(2));
+
+  const MAX = 4;
+  const rows = lines
+    .slice(0, MAX)
+    .map(
+      (l) => `<tr>
+        <td class="nm">${esc(l.name)}${l.variation ? `<span class="var">${esc(l.variation)}</span>` : ""}</td>
+        <td class="q">${l.qty}</td>
+        <td class="r">${money(l.unit)}</td>
+        <td class="r b">${money(l.amount)}</td>
+      </tr>`
+    )
+    .join("");
+  const moreRow =
+    lines.length > MAX
+      ? `<tr><td class="nm more">+ ${lines.length - MAX} more item(s)</td><td></td><td></td><td></td></tr>`
+      : "";
+  const totRow = (label: string, val: number) =>
+    `<tr><td class="tl">${esc(label)}</td><td class="tv">${money(val)}</td></tr>`;
+  const totals = [
+    totRow("Subtotal", subtotal),
+    totRow("Shipping fee", shipping),
+    voucher > 0 ? totRow("Voucher", -voucher) : "",
+    tax > 0 ? totRow("Tax", tax) : "",
+    !isPrepaid && Math.abs(adjustment) >= 0.01 ? totRow("Adjustment", adjustment) : "",
+    isPrepaid ? totRow("Order total", computed) : "",
+  ]
+    .filter(Boolean)
+    .join("");
+
+  const invoiceHtml = `
+    <div class="ih">
+      <div class="shop">${esc(shopName)}</div>
+      <div class="meta">
+        INVOICE &middot; Order ${esc(item.darazOrderId)}<br />
+        ${esc(orderDate)}${tracking ? " &middot; " + esc(tracking) : ""}
+      </div>
+    </div>
+    <div class="cols">
+      <div class="items">
+        <table>
+          <thead><tr><th>Item</th><th class="q">Qty</th><th class="r">Rate</th><th class="r">Amount</th></tr></thead>
+          <tbody>${rows}${moreRow}</tbody>
+        </table>
+      </div>
+      <div class="side">
+        <table>${totals}</table>
+        <div class="pay">
+          <span class="lbl">${isPrepaid ? "PREPAID - COLLECT NOTHING" : "TOTAL PAYABLE (COD)"}</span>
+          <span class="amt">${esc(currency)} ${money(payable)}</span>
+        </div>
+        ${isPrepaid ? `<div class="paidnote">Paid online. Do not collect cash.</div>` : ""}
+      </div>
+    </div>
+    <div class="cust">
+      <b>${esc(orderRow?.customerName || "")}</b>${orderRow?.customerPhone ? " &middot; " + esc(orderRow.customerPhone) : ""}
+    </div>
+    <div class="brand">OlkoCMS</div>`;
+
+  return {
+    orderItemId,
+    darazOrderId: item.darazOrderId,
+    store: store.storeName,
+    shopName,
+    isPrepaid,
+    payable,
+    labelHtml,
+    invoiceHtml,
+  };
+}
+
+// Paper geometry. The label is 115 x 160 mm and MUST print at 100% on paper
+// modes - a shrunk Code128 is a shipment that will not scan.
+function paperCss(paper: string) {
+  if (paper === "thermal") {
+    // 100 x 150 mm roll. Label only - a thermal roll has no room for an invoice.
+    const s = 100 / 115; // 0.8696
+    return {
+      page: "@page { size: 100mm 150mm; margin: 0; }",
+      sheet: `width: 100mm; height: 150mm;`,
+      labelSlot: `left: 0mm; top: 0mm; width: 100mm; height: ${160 * s}mm;`,
+      labelScale: `transform: scale(${s}); transform-origin: top left;`,
+      showInvoice: false,
+      perPage: 1,
+      landscape: false,
+    };
+  }
+  if (paper === "a4") {
+    // A5 block centred on A4 portrait, 100% scale. Cut off the excess.
+    return {
+      page: "@page { size: A4; margin: 0; }",
+      sheet: `width: 148mm; height: 210mm; margin: 10mm auto;`,
+      labelSlot: `left: 16.5mm; top: 3mm; width: 115mm; height: 160mm;`,
+      labelScale: "",
+      showInvoice: true,
+      perPage: 1,
+      landscape: false,
+    };
+  }
+  if (paper === "a4x2") {
+    // A4 LANDSCAPE = 297 x 210. Two A5 sheets side by side (148 x 2 = 296).
+    // Cut down the middle -> two parcels per sheet.
+    return {
+      page: "@page { size: A4 landscape; margin: 0; }",
+      sheet: `width: 148mm; height: 210mm;`,
+      labelSlot: `left: 16.5mm; top: 3mm; width: 115mm; height: 160mm;`,
+      labelScale: "",
+      showInvoice: true,
+      perPage: 2,
+      landscape: true,
+    };
+  }
+  // default: a5
+  return {
+    page: "@page { size: A5; margin: 0; }",
+    sheet: `width: 148mm; height: 210mm;`,
+    labelSlot: `left: 16.5mm; top: 3mm; width: 115mm; height: 160mm;`,
+    labelScale: "",
+    showInvoice: true,
+    perPage: 1,
+    landscape: false,
+  };
+}
+
 export const GET = withTenant(async (req: NextRequest) => {
   try {
     const appKey = (process.env.DARAZ_APP_KEY || "").trim();
@@ -594,6 +833,166 @@ ${auto ? "<script>window.addEventListener('load',function(){setTimeout(function(
           "X-Inlined-Assets": String(inlined),
           "X-Line-Count": String(lines.length),
           "X-Unit-Count": String(rawItems.length),
+        },
+      });
+    }
+
+    // ================= mode=print : ALL paper types, single or batch =========
+    //   ?mode=print&ids=<id,id,id>&paper=a5|a4|a4x2|thermal[&auto=1]
+    //
+    //   a5      one A5 sheet per order: label + invoice (label at true size)
+    //   a4      the same A5 block centred on A4 at 100% - no shrink, cut the excess
+    //   a4x2    A4 LANDSCAPE, TWO orders side by side (148x2 = 296 <= 297mm).
+    //           Cut down the middle. This is the batch mode for an office printer.
+    //   thermal 100x150mm roll, LABEL ONLY (no room for an invoice on a roll)
+    //
+    //   The label always prints at 100% on paper modes. A shrunk Code128 is a
+    //   parcel the rider cannot scan - never "fit to page".
+    //
+    //   Vercel Hobby kills the request at 10s and each order costs 2 Daraz calls,
+    //   so a batch is capped at 6. Beyond that we say so instead of timing out.
+    if (mode === "print") {
+      const paper = (req.nextUrl.searchParams.get("paper") || "a5").toLowerCase();
+      const auto = req.nextUrl.searchParams.get("auto") === "1";
+      const idsParam =
+        req.nextUrl.searchParams.get("ids") || req.nextUrl.searchParams.get("orderItemId") || "";
+      const ids = idsParam
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      if (ids.length === 0) {
+        return NextResponse.json(
+          { error: "Pass ?mode=print&ids=<orderItemId,...>&paper=a5|a4|a4x2|thermal" },
+          { status: 400 }
+        );
+      }
+      const MAX_BATCH = 6;
+      const overflow = ids.length > MAX_BATCH ? ids.slice(MAX_BATCH) : [];
+      const batch = ids.slice(0, MAX_BATCH);
+
+      const geo = paperCss(paper);
+      const logoCache = new Map<string, string>();
+      const sheets: any[] = [];
+      const failures: any[] = [];
+      for (const id of batch) {
+        const s = await buildSheet(id, { appKey, appSecret, logoCache });
+        if ("error" in s) failures.push(s);
+        else sheets.push(s);
+      }
+
+      if (sheets.length === 0) {
+        return NextResponse.json(
+          { error: "Nothing printable. Orders must be ready_to_ship.", failures },
+          { status: 409 }
+        );
+      }
+
+      const esc = (v: any) => String(v ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+
+      const sheetDivs = sheets
+        .map(
+          (s) => `<div class="sheet">
+            <div class="label-slot"><div class="label-inner">${s.labelHtml}</div></div>
+            ${geo.showInvoice ? `<div class="cut"><span>CUT HERE</span></div><div class="inv">${s.invoiceHtml}</div>` : ""}
+          </div>`
+        )
+        .join("");
+
+      // a4x2 pairs two sheets per printed page
+      const body =
+        geo.perPage === 2
+          ? sheets
+              .map(
+                (s, i) =>
+                  `${i % 2 === 0 ? '<div class="page">' : ""}<div class="sheet">
+                    <div class="label-slot"><div class="label-inner">${s.labelHtml}</div></div>
+                    <div class="cut"><span>CUT HERE</span></div>
+                    <div class="inv">${s.invoiceHtml}</div>
+                  </div>${i % 2 === 1 || i === sheets.length - 1 ? "</div>" : ""}`
+              )
+              .join("")
+          : sheetDivs;
+
+      const page = `<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<title>Print ${sheets.length} label(s) - ${esc(paper)}</title>
+<style>
+  ${geo.page}
+  html, body { margin: 0; padding: 0; background: #eef0f3; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; box-sizing: border-box; }
+  .page { display: flex; width: 297mm; height: 210mm; page-break-after: always; background: #fff; margin: 14px auto; box-shadow: 0 2px 14px rgba(0,0,0,.18); }
+  .page .sheet { margin: 0; box-shadow: none; border-right: 1px dashed #c8ccd0; }
+  .sheet {
+    ${geo.sheet}
+    position: relative; overflow: hidden; background: #fff;
+    page-break-after: always; margin: 14px auto;
+    box-shadow: 0 2px 14px rgba(0,0,0,.18);
+    font-family: Arial, Helvetica, sans-serif; color: #000;
+  }
+  .label-slot { position: absolute; ${geo.labelSlot} overflow: hidden; }
+  .label-inner { ${geo.labelScale} }
+  .cut { position: absolute; left: 5mm; top: 166mm; width: 138mm; border-top: 1px dashed #9aa0a6; }
+  .cut span { position: absolute; top: -4.4mm; left: 50%; transform: translateX(-50%); background: #fff; padding: 0 2mm; font-size: 6pt; color: #9aa0a6; letter-spacing: 1px; }
+  .inv { position: absolute; left: 6mm; top: 169mm; width: 136mm; height: 38mm; font-size: 7.5pt; line-height: 1.2; overflow: hidden; }
+  .ih { display: flex; justify-content: space-between; align-items: baseline; border-bottom: 1.3px solid #000; padding-bottom: .8mm; }
+  .ih .shop { font-size: 11pt; font-weight: bold; }
+  .ih .meta { font-size: 6.8pt; text-align: right; color: #333; }
+  .cols { display: flex; gap: 4mm; margin-top: 1.2mm; }
+  .items { flex: 1 1 auto; }
+  table { width: 100%; border-collapse: collapse; }
+  .items th { font-size: 6pt; text-transform: uppercase; letter-spacing: .4px; color: #555; border-bottom: .6px solid #c8ccd0; padding: .5mm .8mm; text-align: left; }
+  .items td { padding: .7mm .8mm; border-bottom: .4px solid #e8eaed; vertical-align: top; font-size: 7pt; }
+  td.nm { width: 60%; }
+  td.q, th.q { width: 8mm; text-align: center; }
+  td.r, th.r { text-align: right; white-space: nowrap; }
+  td.b { font-weight: bold; }
+  .var { display: block; font-size: 5.8pt; color: #777; }
+  .more { font-style: italic; color: #777; font-size: 6.2pt; }
+  .side { flex: 0 0 46mm; }
+  .tl { font-size: 7pt; color: #333; padding: .5mm 0; }
+  .tv { font-size: 7pt; text-align: right; padding: .5mm 0; white-space: nowrap; }
+  .pay { margin-top: 1mm; border-top: 1.3px solid #000; padding-top: 1mm; display: flex; justify-content: space-between; align-items: baseline; }
+  .pay .lbl { font-size: 6.5pt; font-weight: bold; letter-spacing: .5px; }
+  .pay .amt { font-size: 13pt; font-weight: bold; }
+  .paidnote { margin-top: .6mm; font-size: 6.2pt; font-weight: bold; text-align: right; }
+  .cust { margin-top: 1.2mm; font-size: 6.8pt; }
+  .cust b { font-size: 7.5pt; }
+  .brand { position: absolute; right: 0; bottom: 0; font-size: 5.5pt; color: #aeb3b8; }
+  .bar { text-align: center; margin: 14px 0; font-family: Arial, sans-serif; }
+  .bar button { font-size: 14px; padding: 8px 20px; cursor: pointer; border: 0; background: #111; color: #fff; border-radius: 4px; }
+  .bar .warn { display: block; margin-top: 8px; font-size: 12px; color: #b45309; font-weight: bold; }
+  .bar span.hint { display: block; margin-top: 6px; font-size: 11px; color: #666; }
+  @media print {
+    html, body { background: #fff; }
+    .sheet, .page { margin: 0; box-shadow: none; }
+    .bar { display: none; }
+  }
+</style>
+</head>
+<body>
+<div class="bar">
+  <button onclick="window.print()">Print ${sheets.length} label(s)</button>
+  <span class="hint">Paper = ${esc(paper.toUpperCase())} &middot; Margins = None &middot; <b>Scale = 100% (never "Fit to page")</b> &middot; Background graphics = ON</span>
+  ${failures.length ? `<span class="warn">${failures.length} order(s) skipped - not ready_to_ship</span>` : ""}
+  ${overflow.length ? `<span class="warn">${overflow.length} order(s) not printed - batch is capped at ${MAX_BATCH} (Vercel 10s limit). Run them in a second batch.</span>` : ""}
+</div>
+${body}
+${auto ? "<script>window.addEventListener('load',function(){setTimeout(function(){window.print();},600);});</script>" : ""}
+</body>
+</html>`;
+
+      return new NextResponse(page, {
+        status: 200,
+        headers: {
+          "Content-Type": "text/html; charset=utf-8",
+          "Cache-Control": "no-store",
+          "X-Sheets": String(sheets.length),
+          "X-Failed": String(failures.length),
+          "X-Overflow": String(overflow.length),
+          "X-Paper": paper,
         },
       });
     }
