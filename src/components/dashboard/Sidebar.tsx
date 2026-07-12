@@ -30,7 +30,7 @@ const darazLinks = [
   { label: 'Daraz Stores', href: '/dashboard/settings/daraz-stores' },
   { label: 'Orders', href: '/dashboard/daraz/orders' },
   { label: 'Returns List', href: '/dashboard/daraz/returns-list' },
-  { label: 'All To Ship', href: '/dashboard/daraz/to-ship' },
+  { label: 'Order Processing', href: '/dashboard/daraz/shipping' },
   { label: 'Scans', href: '/dashboard/daraz/scans?type=inbound&view=all' },
   { label: 'Outbound', href: '/dashboard/daraz/outbound' },
   { label: 'Returns Scan', href: '/dashboard/daraz/returns' },

@@ -1,9 +1,12 @@
 "use client";
 import { useState, useEffect } from "react";
-import { Printer, Truck, RefreshCw, Package, AlertTriangle, Loader2 } from "lucide-react";
+import {
+  Printer, Truck, RefreshCw, Package, AlertTriangle, Loader2, CheckCircle2, Circle,
+} from "lucide-react";
 import { resolveStoreName } from "@/lib/storeMap";
+import OrderDetailPopup from "@/components/OrderDetailPopup";
 
-interface QueueRow {
+interface Row {
   orderItemId: string;
   darazOrderId: string;
   itemName: string;
@@ -12,6 +15,8 @@ interface QueueRow {
   price: number;
   storeId: string | null;
   trackingNo: string;
+  printCount: number;
+  printedAt: string | null;
   customerName: string;
   customerPhone: string;
   orderDate: string | null;
@@ -30,34 +35,65 @@ const PAPERS = [
   { id: "thermal", label: "Thermal 100x150 (label only)" },
 ];
 
-// Vercel Hobby kills the request at 10s and each order costs 2 Daraz calls.
-const MAX_BATCH = 6;
+type Tab = "pending" | "packed" | "notprinted" | "printed" | "all";
+const MAX_BATCH = 6; // Vercel 10s ceiling: each order costs 2 Daraz calls
 
-export default function ShippingPage() {
-  const [rows, setRows] = useState<QueueRow[]>([]);
+export default function OrderProcessingPage() {
+  const [rows, setRows] = useState<Row[]>([]);
   const [loading, setLoading] = useState(true);
-  const [tab, setTab] = useState<"pending" | "ready_to_ship" | "all">("pending");
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>("pending");
   const [storeFilter, setStoreFilter] = useState("all");
   const [selected, setSelected] = useState<string[]>([]);
   const [paper, setPaper] = useState("a5");
-  const [shipping, setShipping] = useState<string | null>(null);
+  const [busy, setBusy] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [popup, setPopup] = useState<{ orderId: string; storeId: string | null } | null>(null);
 
-  const fetchRows = async () => {
+  const load = async () => {
+    const res = await fetch("/api/daraz/ship-queue", { cache: "no-store" });
+    const data = await res.json();
+    setRows(Array.isArray(data.rows) ? data.rows : []);
+  };
+
+  // Refresh = live sync, not a DB re-read. Item rows are otherwise only created
+  // by the nightly cron, so today's orders would be invisible here.
+  const refresh = async () => {
     setLoading(true);
+    setNote(null);
     try {
-      const res = await fetch("/api/daraz/ship-queue", { cache: "no-store" });
-      const data = await res.json();
-      setRows(Array.isArray(data.rows) ? data.rows : []);
-    } catch {
-      setRows([]);
+      setSyncMsg("Pulling new orders from Daraz...");
+      await fetch("/api/daraz/orders/fetch", { cache: "no-store" });
+
+      for (let pass = 0; pass < 5; pass++) {
+        setSyncMsg(`Syncing order items... (pass ${pass + 1})`);
+        const res = await fetch("/api/daraz/ship-queue?sync=1", { cache: "no-store" });
+        const data = await res.json();
+        setRows(Array.isArray(data.rows) ? data.rows : []);
+        const remaining = data?.sync?.remaining ?? 0;
+        if (data?.sync?.error) {
+          setNote(`Sync warning: ${data.sync.error}`);
+          break;
+        }
+        if (remaining === 0) break;
+        setSyncMsg(`Syncing order items... ${remaining} orders left`);
+      }
+      await load();
+      setSyncMsg(null);
+    } catch (e) {
+      setSyncMsg(null);
+      setNote(`Refresh failed: ${String(e).substring(0, 120)}`);
     }
     setSelected([]);
     setLoading(false);
   };
 
   useEffect(() => {
-    fetchRows();
+    (async () => {
+      setLoading(true);
+      await load();
+      setLoading(false);
+    })();
     const saved = window.localStorage?.getItem("olko_paper");
     if (saved) setPaper(saved);
   }, []);
@@ -71,42 +107,44 @@ export default function ShippingPage() {
     }
   };
 
-  const byTab = rows.filter((r) => (tab === "all" ? true : r.status === tab));
-  const filtered = storeFilter === "all" ? byTab : byTab.filter((r) => r.storeId === storeFilter);
-  const storeIds = Array.from(new Set(rows.map((r) => r.storeId).filter(Boolean))) as string[];
-
   const counts = {
     pending: rows.filter((r) => r.status === "pending").length,
-    ready_to_ship: rows.filter((r) => r.status === "ready_to_ship").length,
+    packed: rows.filter((r) => r.status === "packed").length,
+    notprinted: rows.filter((r) => r.status === "ready_to_ship" && r.printCount === 0).length,
+    printed: rows.filter((r) => r.printCount > 0).length,
   };
+
+  const byTab = rows.filter((r) => {
+    if (tab === "all") return true;
+    if (tab === "pending") return r.status === "pending";
+    if (tab === "packed") return r.status === "packed";
+    if (tab === "notprinted") return r.status === "ready_to_ship" && r.printCount === 0;
+    if (tab === "printed") return r.printCount > 0;
+    return true;
+  });
+  const filtered = storeFilter === "all" ? byTab : byTab.filter((r) => r.storeId === storeFilter);
+  const storeIds = Array.from(new Set(rows.map((r) => r.storeId).filter(Boolean))) as string[];
 
   const toggle = (id: string) =>
     setSelected((s) => (s.includes(id) ? s.filter((x) => x !== id) : [...s, id]));
 
-  const printableSelected = selected.filter(
+  const printable = selected.filter(
     (id) => rows.find((r) => r.orderItemId === id)?.status === "ready_to_ship"
   );
 
-  const printSelected = () => {
-    if (printableSelected.length === 0) return;
-    const ids = printableSelected.slice(0, MAX_BATCH).join(",");
+  const openPrint = async (ids: string[]) => {
+    if (ids.length === 0) return;
     window.open(
-      `/api/daraz/shipping-label?mode=print&ids=${ids}&paper=${paper}&auto=1`,
+      `/api/daraz/shipping-label?mode=print&ids=${ids.slice(0, MAX_BATCH).join(",")}&paper=${paper}&auto=1`,
       "_blank"
     );
+    // the print route increments printCount server-side; reflect it here
+    setTimeout(load, 2500);
   };
 
-  const printOne = (id: string) => {
-    window.open(
-      `/api/daraz/shipping-label?mode=print&ids=${id}&paper=${paper}&auto=1`,
-      "_blank"
-    );
-  };
-
-  // Writes to a live customer order on Daraz. Cannot be undone from here.
-  const shipOne = async (r: QueueRow) => {
+  const ship = async (r: Row) => {
     const ok = window.confirm(
-      `Pack + Ready-to-Ship this order on Daraz?\n\n` +
+      `Pack + Ready-to-Ship on Daraz?\n\n` +
         `Customer : ${r.customerName}\n` +
         `Order    : ${r.darazOrderId}\n` +
         `Item     : ${r.itemName}\n` +
@@ -114,8 +152,7 @@ export default function ShippingPage() {
         `This writes to the live Daraz order and cannot be undone here.`
     );
     if (!ok) return;
-
-    setShipping(r.orderItemId);
+    setBusy(r.orderItemId);
     setNote(null);
     try {
       const res = await fetch(
@@ -124,67 +161,74 @@ export default function ShippingPage() {
       );
       const data = await res.json();
       if (data.ok) {
-        setNote(
-          `Shipped ${r.darazOrderId} - tracking ${data.trackingNumber || "-"} (${data.shipmentProvider || "-"}). Printing...`
-        );
-        window.open(
-          `/api/daraz/shipping-label?mode=print&ids=${r.orderItemId}&paper=${paper}&auto=1`,
-          "_blank"
-        );
-        await fetchRows();
+        setNote(`Shipped ${r.darazOrderId} - ${data.trackingNumber || "-"} (${data.shipmentProvider || "-"})`);
+        await openPrint([r.orderItemId]);
+        await load();
       } else {
-        setNote(
-          `FAILED at ${data.failedAt || "?"}: ${data.error || data.steps?.slice(-1)?.[0]?.msg || "unknown"}`
-        );
+        setNote(`FAILED at ${data.failedAt || "?"}: ${data.error || "see console"}`);
       }
     } catch (e) {
       setNote(`Request failed: ${String(e).substring(0, 120)}`);
     }
-    setShipping(null);
+    setBusy(null);
   };
+
+  const TABS: [Tab, string][] = [
+    ["pending", `To Ship (${counts.pending})`],
+    ["packed", `Packed (${counts.packed})`],
+    ["notprinted", `Not Printed (${counts.notprinted})`],
+    ["printed", `Printed (${counts.printed})`],
+    ["all", `All (${rows.length})`],
+  ];
 
   return (
     <div className="p-6 space-y-6">
+      {popup && (
+        <OrderDetailPopup
+          orderId={popup.orderId}
+          storeId={popup.storeId}
+          onClose={() => setPopup(null)}
+        />
+      )}
+
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Printer className="w-6 h-6 text-orange-400" />
+          <Truck className="w-6 h-6 text-orange-400" />
           <div>
-            <h1 className="text-2xl font-bold text-white">Shipping &amp; Labels</h1>
+            <h1 className="text-2xl font-bold text-white">Order Processing</h1>
             <p className="text-gray-400 text-sm">
-              Pack + Ready-to-Ship on Daraz, then print the label and invoice
+              Pack, Ready-to-Ship and print labels for all stores
             </p>
           </div>
         </div>
         <button
-          onClick={fetchRows}
+          onClick={refresh}
           disabled={loading}
           className="flex items-center gap-2 px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-sm font-medium transition-colors"
         >
           <RefreshCw className={`w-4 h-4 ${loading ? "animate-spin" : ""}`} />
-          {loading ? "Loading..." : "Refresh"}
+          {loading ? "Syncing..." : "Refresh"}
         </button>
       </div>
 
-      {note && (
+      {(syncMsg || note) && (
         <div className="flex items-start gap-2 bg-gray-900 border border-gray-800 rounded-lg px-4 py-3 text-sm text-gray-300">
-          <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
-          <span>{note}</span>
+          {syncMsg ? (
+            <Loader2 className="w-4 h-4 text-orange-400 mt-0.5 shrink-0 animate-spin" />
+          ) : (
+            <AlertTriangle className="w-4 h-4 text-amber-400 mt-0.5 shrink-0" />
+          )}
+          <span>{syncMsg || note}</span>
         </div>
       )}
 
-      {/* Status tabs */}
+      {/* Stage tabs */}
       <div className="flex gap-2 flex-wrap">
-        {(
-          [
-            ["pending", `To Ship (${counts.pending})`],
-            ["ready_to_ship", `Ready to Print (${counts.ready_to_ship})`],
-            ["all", `All (${rows.length})`],
-          ] as const
-        ).map(([id, label]) => (
+        {TABS.map(([id, label]) => (
           <button
             key={id}
             onClick={() => {
-              setTab(id as any);
+              setTab(id);
               setSelected([]);
             }}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
@@ -239,24 +283,17 @@ export default function ShippingPage() {
             </option>
           ))}
         </select>
-
         <button
-          onClick={printSelected}
-          disabled={printableSelected.length === 0}
+          onClick={() => openPrint(printable)}
+          disabled={printable.length === 0}
           className="flex items-center gap-2 px-4 py-1.5 bg-blue-600 hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-medium transition-colors"
         >
           <Printer className="w-4 h-4" />
-          Print selected ({printableSelected.length})
+          Print selected ({printable.length})
         </button>
-
-        {printableSelected.length > MAX_BATCH && (
+        {printable.length > MAX_BATCH && (
           <span className="text-xs text-amber-400">
-            Only the first {MAX_BATCH} will print - batch is capped (10s limit)
-          </span>
-        )}
-        {selected.length > printableSelected.length && (
-          <span className="text-xs text-gray-500">
-            {selected.length - printableSelected.length} selected are not ready_to_ship yet
+            Only the first {MAX_BATCH} will print (10s limit)
           </span>
         )}
         <span className="text-xs text-gray-500 ml-auto">
@@ -282,11 +319,10 @@ export default function ShippingPage() {
                     type="checkbox"
                     className="accent-orange-500"
                     checked={filtered.length > 0 && filtered.every((r) => selected.includes(r.orderItemId))}
-                    onChange={(e) =>
-                      setSelected(e.target.checked ? filtered.map((r) => r.orderItemId) : [])
-                    }
+                    onChange={(e) => setSelected(e.target.checked ? filtered.map((r) => r.orderItemId) : [])}
                   />
                 </th>
+                <th className="px-4 py-3 w-12 text-center">Print</th>
                 <th className="px-4 py-3">Order</th>
                 <th className="px-4 py-3">Item</th>
                 <th className="px-4 py-3">Customer</th>
@@ -298,10 +334,7 @@ export default function ShippingPage() {
             </thead>
             <tbody>
               {filtered.map((r) => (
-                <tr
-                  key={r.orderItemId}
-                  className="border-t border-gray-800 hover:bg-gray-800/30 transition-colors"
-                >
+                <tr key={r.orderItemId} className="border-t border-gray-800 hover:bg-gray-800/30 transition-colors">
                   <td className="px-4 py-3">
                     <input
                       type="checkbox"
@@ -310,15 +343,37 @@ export default function ShippingPage() {
                       onChange={() => toggle(r.orderItemId)}
                     />
                   </td>
-                  <td className="px-4 py-3 text-blue-400 font-mono text-xs">{r.darazOrderId}</td>
+                  <td className="px-4 py-3">
+                    {r.printCount > 0 ? (
+                      <div
+                        className="flex items-center justify-center gap-1"
+                        title={`Printed ${r.printCount}x${r.printedAt ? " - last " + new Date(r.printedAt).toLocaleString() : ""}`}
+                      >
+                        <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                        {r.printCount > 1 && (
+                          <span className="text-[10px] font-bold text-emerald-400">x{r.printCount}</span>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="flex items-center justify-center" title="Not printed yet">
+                        <Circle className="w-4 h-4 text-gray-600" />
+                      </div>
+                    )}
+                  </td>
+                  <td className="px-4 py-3">
+                    <button
+                      onClick={() => setPopup({ orderId: r.darazOrderId, storeId: r.storeId })}
+                      className="text-blue-400 font-mono text-xs hover:underline"
+                    >
+                      {r.darazOrderId}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-gray-300 max-w-xs truncate" title={r.itemName}>
                     {r.itemName}
                   </td>
                   <td className="px-4 py-3 text-gray-300">
                     {r.customerName}
-                    {r.customerPhone && (
-                      <span className="block text-xs text-gray-500">{r.customerPhone}</span>
-                    )}
+                    {r.customerPhone && <span className="block text-xs text-gray-500">{r.customerPhone}</span>}
                   </td>
                   <td className="px-4 py-3">
                     <span
@@ -334,19 +389,23 @@ export default function ShippingPage() {
                   <td className="px-4 py-3 text-right">
                     {r.status === "ready_to_ship" ? (
                       <button
-                        onClick={() => printOne(r.orderItemId)}
-                        className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium transition-colors"
+                        onClick={() => openPrint([r.orderItemId])}
+                        className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors text-white ${
+                          r.printCount > 0
+                            ? "bg-gray-700 hover:bg-gray-600"
+                            : "bg-blue-600 hover:bg-blue-700"
+                        }`}
                       >
                         <Printer className="w-3.5 h-3.5" />
-                        Print
+                        {r.printCount > 0 ? "Reprint" : "Print"}
                       </button>
                     ) : (
                       <button
-                        onClick={() => shipOne(r)}
-                        disabled={shipping === r.orderItemId}
+                        onClick={() => ship(r)}
+                        disabled={busy === r.orderItemId}
                         className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-orange-600 hover:bg-orange-700 disabled:opacity-50 text-white rounded-lg text-xs font-medium transition-colors"
                       >
-                        {shipping === r.orderItemId ? (
+                        {busy === r.orderItemId ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
                           <Truck className="w-3.5 h-3.5" />

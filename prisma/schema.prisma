@@ -212,6 +212,8 @@ model DarazOrder {
 }
 
 model DarazOrderItem {
+  printedAt  DateTime?
+  printCount Int       @default(0)
   subscriptionId String?
   id            String   @id @default(cuid())
   orderItemId   String   @unique

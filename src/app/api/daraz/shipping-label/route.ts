@@ -984,6 +984,22 @@ ${auto ? "<script>window.addEventListener('load',function(){setTimeout(function(
 </body>
 </html>`;
 
+      // Print tracking. We can only observe that a label SHEET WAS GENERATED -
+      // the browser's afterprint event fires whether the user prints or cancels,
+      // so it cannot distinguish them. Counting on generate over-counts slightly
+      // and never under-counts, which is the safe direction: a needless reprint
+      // is cheap, an unlabelled parcel is not.
+      for (const s of sheets) {
+        try {
+          await prisma.darazOrderItem.update({
+            where: { orderItemId: s.orderItemId },
+            data: { printCount: { increment: 1 }, printedAt: new Date() },
+          });
+        } catch (e) {
+          /* non-fatal - never block a print because bookkeeping failed */
+        }
+      }
+
       return new NextResponse(page, {
         status: 200,
         headers: {
