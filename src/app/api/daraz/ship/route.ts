@@ -188,30 +188,41 @@ export const GET = withTenant(async (req: NextRequest) => {
     }
 
     // ---------- READ-ONLY: valid provider codes ----------
-    // The published doc says this takes getShipmentProvidersReq={"orders":[...]}.
-    // The Nepal gateway disagrees: it answered
-    //   MissingParameter: "order_item_ids" is mandatory
-    // exactly like /order/document/get did. So the NP endpoints use FLAT params,
-    // not the Lazada-style nested *Req payloads. Try every shape and report each
-    // instead of guessing. Read-only: this endpoint only lists providers.
+    // The gateway wants BOTH the nested payload AND order_item_ids:
+    //   send order_item_ids alone      -> "getShipmentProvidersReq is mandatory"
+    //   send getShipmentProvidersReq   -> "order_item_ids is mandatory"
+    // So it is not flat-vs-nested, it is flat AND nested. Same pattern as
+    // /order/document/get, which needed doc_type + order_item_ids together.
+    // Read-only: this endpoint only lists providers.
     if (mode === "providers") {
+      const itemsJson = JSON.stringify([Number(orderItemId)]);
+      const reqPayload = JSON.stringify({ orders: [{ order_id: String(item.darazOrderId) }] });
+
       const variants: Record<string, Record<string, string>> = {
-        order_item_ids: { order_item_ids: JSON.stringify([Number(orderItemId)]) },
-        order_id: { order_id: String(item.darazOrderId) },
-        req_payload: {
-          getShipmentProvidersReq: JSON.stringify({ orders: [{ order_id: String(item.darazOrderId) }] }),
+        both_orders_payload: {
+          getShipmentProvidersReq: reqPayload,
+          order_item_ids: itemsJson,
+        },
+        both_items_payload: {
+          getShipmentProvidersReq: JSON.stringify({
+            orders: [
+              {
+                order_id: String(item.darazOrderId),
+                order_item_list: [String(orderItemId)],
+              },
+            ],
+          }),
+          order_item_ids: itemsJson,
         },
       };
 
       const attempts: any[] = [];
       for (const [name, params] of Object.entries(variants)) {
-        // this API is documented GET/POST - try GET, and POST as a fallback
         const viaGet = await callGet("/order/shipment/providers/get", params, token, appKey, appSecret);
         const g = unwrap(viaGet);
-        let viaPost: any = null;
         let p: any = null;
         if (g.apiCode !== "0") {
-          viaPost = await callPost("/order/shipment/providers/get", params, token, appKey, appSecret);
+          const viaPost = await callPost("/order/shipment/providers/get", params, token, appKey, appSecret);
           p = unwrap(viaPost);
         }
         const win = g.apiCode === "0" ? g : p;
@@ -223,6 +234,8 @@ export const GET = withTenant(async (req: NextRequest) => {
           postCode: p?.apiCode ?? null,
           postMessage: p?.apiMessage ?? null,
           ok: win?.apiCode === "0",
+          errorCode: win?.errorCode ?? null,
+          errorMsg: win?.errorMsg ?? null,
           shipmentProviders: win?.data?.shipment_providers ?? null,
           shippingAllocateType: win?.data?.shipping_allocate_type ?? null,
           data: win?.data ?? null,
@@ -239,42 +252,64 @@ export const GET = withTenant(async (req: NextRequest) => {
     }
 
     // ---------- SAFE: fake-order probe ----------
-    // A non-existent order id cannot be packed. Expected: 700021 ORDER_NOT_FOUND.
-    // That proves path + signature + payload SHAPE are all correct.
-    // PARAM_ILLEGAL (700004) instead would mean our shape is wrong -> stop.
+    // Fake order id -> cannot pack anything. Expected: 700021 ORDER_NOT_FOUND,
+    // which would prove path + signature + payload shape are all correct.
+    // Sends packReq AND order_item_ids together, because that is what the
+    // providers endpoint proved the gateway wants.
+    // PARAM_ILLEGAL / MissingParameter instead = our shape is still wrong -> stop.
     if (mode === "packtest") {
-      const provider = req.nextUrl.searchParams.get("provider") || "";
+      const provider = req.nextUrl.searchParams.get("provider") || "TEST";
       const allocate = req.nextUrl.searchParams.get("allocate") || "TFS";
-      if (!provider) {
-        return NextResponse.json(
-          { error: "provider required. Run ?mode=providers first, then pass &provider=<provider_code>" },
-          { status: 400 }
-        );
-      }
-      const payload = JSON.stringify({
+
+      const packReq = JSON.stringify({
         pack_order_list: [{ order_id: "1", order_item_list: ["1"] }],
         delivery_type: "dropship",
         shipment_provider_code: provider,
         shipping_allocate_type: allocate,
       });
-      const resp = await callPost("/order/fulfill/pack", { packReq: payload }, token, appKey, appSecret);
-      const u = unwrap(resp);
-      const verdict =
-        u.apiCode === "InsufficientPermission"
-          ? "STILL NO PERMISSION - do not proceed"
-          : /700021|not found/i.test(String(u.errorCode || "") + String(u.errorMsg || ""))
-          ? "PERFECT - path, signature and payload shape are all correct (fake order rejected as not found)"
-          : /700004|illegal|param/i.test(String(u.errorCode || "") + String(u.errorMsg || ""))
-          ? "PAYLOAD SHAPE IS WRONG - fix before any real pack"
-          : "unexpected - read the raw response before proceeding";
+
+      const variants: Record<string, Record<string, string>> = {
+        packreq_plus_items: { packReq, order_item_ids: "[1]" },
+        packreq_only: { packReq },
+        flat_only: {
+          delivery_type: "dropship",
+          order_item_ids: "[1]",
+          shipment_provider_code: provider,
+          shipping_allocate_type: allocate,
+        },
+      };
+
+      const attempts: any[] = [];
+      for (const [name, params] of Object.entries(variants)) {
+        const resp = await callPost("/order/fulfill/pack", params, token, appKey, appSecret);
+        const u = unwrap(resp);
+        const blob = String(u.apiCode || "") + String(u.apiMessage || "") + String(u.errorCode || "") + String(u.errorMsg || "");
+        const verdict = /InsufficientPermission/i.test(blob)
+          ? "NO PERMISSION"
+          : /700021|order not found/i.test(blob)
+          ? "SHAPE CORRECT (fake order rejected as not found)"
+          : /MissingParameter/i.test(blob)
+          ? "missing a param - read apiMessage"
+          : /700004|illegal/i.test(blob)
+          ? "param illegal - shape wrong"
+          : "unexpected - read raw";
+        attempts.push({
+          variant: name,
+          sentParams: params,
+          verdict,
+          apiCode: u.apiCode,
+          apiMessage: u.apiMessage,
+          errorCode: u.errorCode,
+          errorMsg: u.errorMsg,
+          data: u.data,
+        });
+      }
+
       return NextResponse.json({
         mode: "packtest",
-        note: "Sent a FAKE order id. Nothing real was touched.",
+        note: "FAKE order id. Nothing real was touched.",
         store: store.storeName,
-        sentPayload: payload,
-        verdict,
-        ...u,
-        raw: resp,
+        attempts,
       });
     }
 
