@@ -4,21 +4,26 @@ import { prisma } from "@/lib/prisma";
 import { withTenant } from "@/lib/with-tenant";
 import crypto from "crypto";
 
-// Item-level feed for Order Processing.
+// Item feed for Order Processing.
 //
-// WHY THIS SYNCS. DarazOrderItem rows are only created by cron/nightly step 1b,
-// which runs ONCE A NIGHT. An order that arrives today therefore exists in
-// DarazOrder but has NO item rows until 8pm - and pack/rts/print are all keyed
-// on orderItemId. Without a live sync here, today's work would be invisible on
-// this screen and staff could not ship it. So ?sync=1 pulls /order/items/get for
-// ship-stage orders that have no items yet.
+// WHY THIS SYNCS. DarazOrderItem rows are created ONLY by cron/nightly step 1b,
+// once a night. An order that arrives today exists in DarazOrder but has NO item
+// rows until 8pm - and pack/rts/print are all keyed on orderItemId. Without a
+// live sync here, today's work would be invisible and unshippable.
 //
-// Vercel Hobby hard-kills the request at 10s and each order costs one Daraz
-// call, so a sync pass is capped at 10 orders and reports `remaining`. The UI
-// calls it again until remaining hits 0, showing progress. Never a silent
-// half-sync.
+// It also REFRESHES items we already hold. Without that, DB status freezes: five
+// rows sat as "packed" for weeks while Daraz had already CANCELED them as
+// duplicates, each showing a Resume RTS button on a dead order.
+//
+// Vercel Hobby kills the request at 10s and each order costs one Daraz call, so
+// a pass is capped and reports `remaining`. The UI calls again until it hits 0.
 
 const SHIP_STAGE = ["pending", "packed", "ready_to_ship"];
+const CANCELLED = ["canceled", "cancelled"];
+
+const CREATE_BATCH = 5;
+const REFRESH_BATCH = 7;
+const STALE_MINUTES = 5;
 
 function signRequest(apiPath: string, params: Record<string, string>, appSecret: string): string {
   const sortedKeys = Object.keys(params).sort();
@@ -51,19 +56,40 @@ async function callDaraz(
   return await res.json();
 }
 
-// A sync pass does two jobs, both capped so the whole request stays under
-// Vercel's 10s ceiling (each order = 1 Daraz call):
-//   CREATE  - orders in a ship stage that have no item rows yet (today's work,
-//             which the nightly cron has not reached)
-//   REFRESH - items we already hold, oldest-touched first. Without this, DB
-//             status freezes forever: five "packed" items were actually
-//             CANCELED on Daraz (duplicate orders) and sat in the queue
-//             inviting staff to Resume RTS on a dead order.
-// Refreshed items whose status leaves the ship stage (canceled, delivered...)
-// simply drop out of the queue, because the queue only selects ship-stage rows.
-const CREATE_BATCH = 5;
-const REFRESH_BATCH = 7;
-const STALE_MINUTES = 5;
+// ---- POST: flag / unflag items as suspicious ----
+// Suspicious is a HUMAN decision. The system only ever suggests candidates
+// (see isDuplicate below) - it never hides an order on its own, because an
+// auto-hidden real order is an order that silently never ships.
+export const POST = withTenant(async (req: NextRequest) => {
+  try {
+    const body = await req.json();
+    const ids: string[] = Array.isArray(body?.orderItemIds) ? body.orderItemIds : [];
+    const suspicious = !!body?.suspicious;
+    const reason = typeof body?.reason === "string" ? body.reason : null;
+
+    if (ids.length === 0) {
+      return NextResponse.json({ error: "orderItemIds required" }, { status: 400 });
+    }
+
+    let updated = 0;
+    for (const id of ids) {
+      try {
+        await prisma.darazOrderItem.update({
+          where: { orderItemId: String(id) },
+          data: suspicious
+            ? { suspicious: true, suspiciousReason: reason, suspiciousAt: new Date() }
+            : { suspicious: false, suspiciousReason: null, suspiciousAt: null },
+        });
+        updated++;
+      } catch (e) {
+        /* item not in this tenant, or gone - skip */
+      }
+    }
+    return NextResponse.json({ ok: true, updated, suspicious });
+  } catch (error) {
+    return NextResponse.json({ error: String(error).substring(0, 200) }, { status: 500 });
+  }
+});
 
 export const GET = withTenant(async (req: NextRequest) => {
   try {
@@ -97,11 +123,9 @@ export const GET = withTenant(async (req: NextRequest) => {
         const missing = orders.filter((o) => !haveSet.has(o.darazOrderId));
         const createBatch = missing.slice(0, CREATE_BATCH);
 
-        // items we hold but have not re-checked lately, stalest first
+        // stalest first, and "packed" before anything else - it is the rarest
+        // state and the most likely to be a lie.
         const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
-        // "packed" first: it is the half-finished state, the rarest, and the most
-        // likely to be a lie (five sat here as "packed" while Daraz had already
-        // CANCELED them as duplicates). Then pending, then ready_to_ship.
         const packedFirst = await prisma.darazOrderItem.findMany({
           where: { status: "packed", updatedAt: { lt: cutoff } },
           orderBy: { updatedAt: "asc" },
@@ -113,6 +137,7 @@ export const GET = withTenant(async (req: NextRequest) => {
           select: { darazOrderId: true, storeId: true },
         });
         const staleItems = [...packedFirst, ...theRest];
+
         const staleOrderIds: string[] = [];
         for (const s of staleItems) {
           if (!staleOrderIds.includes(s.darazOrderId)) staleOrderIds.push(s.darazOrderId);
@@ -126,14 +151,9 @@ export const GET = withTenant(async (req: NextRequest) => {
           Math.max(0, missing.length - createBatch.length) +
           Math.max(0, staleOrderIds.length - refreshBatch.length);
 
-        const batch = [...createBatch, ...refreshBatch];
-
-        for (const ord of batch) {
-          // try the order's own store first, then the tenant's other stores
+        for (const ord of [...createBatch, ...refreshBatch]) {
           const primary = ord.storeId ? stores.find((s) => s.id === ord.storeId) : null;
-          const tryStores = primary
-            ? [primary, ...stores.filter((s) => s.id !== primary.id)]
-            : stores;
+          const tryStores = primary ? [primary, ...stores.filter((s) => s.id !== primary.id)] : stores;
 
           for (const store of tryStores) {
             if (!store.accessToken) continue;
@@ -166,7 +186,7 @@ export const GET = withTenant(async (req: NextRequest) => {
               });
               synced++;
             }
-            break; // matched a store, stop trying others
+            break;
           }
         }
       } catch (e) {
@@ -174,34 +194,65 @@ export const GET = withTenant(async (req: NextRequest) => {
       }
     }
 
-    const items = await prisma.darazOrderItem.findMany({
+    const SELECT = {
+      orderItemId: true,
+      darazOrderId: true,
+      itemName: true,
+      sku: true,
+      status: true,
+      price: true,
+      storeId: true,
+      trackingNo: true,
+      printedAt: true,
+      printCount: true,
+      suspicious: true,
+      suspiciousReason: true,
+      createdAt: true,
+      updatedAt: true,
+    };
+
+    const live = await prisma.darazOrderItem.findMany({
       where: { status: { in: SHIP_STAGE } },
-      select: {
-        orderItemId: true,
-        darazOrderId: true,
-        itemName: true,
-        sku: true,
-        status: true,
-        price: true,
-        storeId: true,
-        trackingNo: true,
-        printedAt: true,
-        printCount: true,
-        createdAt: true,
-      },
+      select: SELECT,
       orderBy: { createdAt: "desc" },
       take: 300,
     });
 
-    const orderIds = Array.from(new Set(items.map((i) => i.darazOrderId)));
+    // Cancelled: kept OUT of every processing tab and given its own, so staff can
+    // see what died without it polluting the work list. Recent ones only.
+    const cancelled = await prisma.darazOrderItem.findMany({
+      where: { status: { in: CANCELLED } },
+      select: SELECT,
+      orderBy: { updatedAt: "desc" },
+      take: 100,
+    });
+
+    const all = [...live, ...cancelled];
+    const orderIds = Array.from(new Set(all.map((i) => i.darazOrderId)));
     const orders = await prisma.darazOrder.findMany({
       where: { darazOrderId: { in: orderIds } },
       select: { darazOrderId: true, customerName: true, customerPhone: true, orderDate: true },
     });
     const byOrder = new Map(orders.map((o) => [o.darazOrderId, o]));
 
-    const rows = items.map((i) => {
+    // DUPLICATE DETECTION (suggestion only, never acted on automatically).
+    // Same customer phone + same SKU appearing more than once in the ship stage.
+    // This is precisely the pattern Daraz itself cancels as "Duplicated order".
+    const dupKey = (phone: string, sku: string) => `${phone}::${sku}`;
+    const dupCounts = new Map<string, number>();
+    for (const i of live) {
+      const phone = byOrder.get(i.darazOrderId)?.customerPhone || "";
+      const sku = i.sku || i.itemName || "";
+      if (!phone || !sku) continue;
+      const k = dupKey(phone, sku);
+      dupCounts.set(k, (dupCounts.get(k) || 0) + 1);
+    }
+
+    const shape = (i: any, isCancelled: boolean) => {
       const o = byOrder.get(i.darazOrderId);
+      const phone = o?.customerPhone || "";
+      const sku = i.sku || i.itemName || "";
+      const dup = !isCancelled && phone && sku ? dupCounts.get(dupKey(phone, sku)) || 1 : 1;
       return {
         orderItemId: i.orderItemId,
         darazOrderId: i.darazOrderId,
@@ -213,21 +264,30 @@ export const GET = withTenant(async (req: NextRequest) => {
         trackingNo: i.trackingNo || "",
         printCount: i.printCount ?? 0,
         printedAt: i.printedAt ? i.printedAt.toISOString() : null,
+        suspicious: !!i.suspicious,
+        suspiciousReason: i.suspiciousReason || "",
+        isCancelled,
+        isDuplicate: dup > 1,
+        duplicateCount: dup,
         customerName: o?.customerName || "-",
-        customerPhone: o?.customerPhone || "",
+        customerPhone: phone,
         orderDate: o?.orderDate ? o.orderDate.toISOString() : null,
       };
-    });
+    };
 
+    const rows = [...live.map((i) => shape(i, false)), ...cancelled.map((i) => shape(i, true))];
+
+    const active = rows.filter((r) => !r.isCancelled && !r.suspicious);
     return NextResponse.json({
       rows,
       count: rows.length,
       counts: {
-        pending: rows.filter((r) => r.status === "pending").length,
-        packed: rows.filter((r) => r.status === "packed").length,
-        ready_to_ship: rows.filter((r) => r.status === "ready_to_ship").length,
-        notPrinted: rows.filter((r) => r.status === "ready_to_ship" && r.printCount === 0).length,
-        printed: rows.filter((r) => r.printCount > 0).length,
+        toship: active.filter((r) => r.status === "pending" || r.status === "packed").length,
+        notprinted: active.filter((r) => r.status === "ready_to_ship" && r.printCount === 0).length,
+        printed: active.filter((r) => r.printCount > 0).length,
+        suspicious: rows.filter((r) => r.suspicious && !r.isCancelled).length,
+        cancelled: rows.filter((r) => r.isCancelled).length,
+        duplicates: active.filter((r) => r.isDuplicate).length,
       },
       sync: doSync ? { synced, remaining, error: syncError } : null,
     });

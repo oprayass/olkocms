@@ -524,6 +524,11 @@ export const GET = withTenant(async (req: NextRequest) => {
           where: { orderItemId },
           data: {
             status: "ready_to_ship",
+            // Processing an order settles the question: it is no longer
+            // suspicious, so it leaves the Suspicious tab on its own.
+            suspicious: false,
+            suspiciousReason: null,
+            suspiciousAt: null,
             ...(trackingNumber ? { trackingNo: trackingNumber } : {}),
           },
         });

@@ -2,6 +2,7 @@
 import { useState, useEffect } from "react";
 import {
   Printer, Truck, RefreshCw, Package, AlertTriangle, Loader2, CheckCircle2, Circle,
+  Flag, FlagOff, Copy, XCircle,
 } from "lucide-react";
 import { resolveStoreName } from "@/lib/storeMap";
 import OrderDetailPopup from "@/components/OrderDetailPopup";
@@ -17,6 +18,11 @@ interface Row {
   trackingNo: string;
   printCount: number;
   printedAt: string | null;
+  suspicious: boolean;
+  suspiciousReason: string;
+  isCancelled: boolean;
+  isDuplicate: boolean;
+  duplicateCount: number;
   customerName: string;
   customerPhone: string;
   orderDate: string | null;
@@ -35,7 +41,7 @@ const PAPERS = [
   { id: "thermal", label: "Thermal 100x150 (label only)" },
 ];
 
-type Tab = "toship" | "notprinted" | "printed" | "all";
+type Tab = "toship" | "notprinted" | "printed" | "suspicious" | "cancelled" | "all";
 const MAX_BATCH = 6; // Vercel 10s ceiling: each order costs 2 Daraz calls
 
 export default function OrderProcessingPage() {
@@ -122,13 +128,22 @@ export default function OrderProcessingPage() {
   // did not. It is a broken order, not a stage of the workflow - so it does not
   // get its own tab. It lives in To Ship and shows "Resume RTS", which keeps the
   // recovery path visible instead of stranding the item where nobody looks.
+  // Suspicious and cancelled items are excluded from EVERY working tab,
+  // including All, so they cannot disturb the day's processing.
+  const active = rows.filter((r) => !r.isCancelled && !r.suspicious);
   const counts = {
-    toship: rows.filter((r) => r.status === "pending" || r.status === "packed").length,
-    notprinted: rows.filter((r) => r.status === "ready_to_ship" && r.printCount === 0).length,
-    printed: rows.filter((r) => r.printCount > 0).length,
+    toship: active.filter((r) => r.status === "pending" || r.status === "packed").length,
+    notprinted: active.filter((r) => r.status === "ready_to_ship" && r.printCount === 0).length,
+    printed: active.filter((r) => r.printCount > 0).length,
+    suspicious: rows.filter((r) => r.suspicious && !r.isCancelled).length,
+    cancelled: rows.filter((r) => r.isCancelled).length,
+    duplicates: active.filter((r) => r.isDuplicate).length,
   };
 
   const byTab = rows.filter((r) => {
+    if (tab === "suspicious") return r.suspicious && !r.isCancelled;
+    if (tab === "cancelled") return r.isCancelled;
+    if (r.isCancelled || r.suspicious) return false; // never in the working tabs
     if (tab === "all") return true;
     if (tab === "toship") return r.status === "pending" || r.status === "packed";
     if (tab === "notprinted") return r.status === "ready_to_ship" && r.printCount === 0;
@@ -190,8 +205,38 @@ export default function OrderProcessingPage() {
     ["toship", `To Ship (${counts.toship})`],
     ["notprinted", `Not Printed (${counts.notprinted})`],
     ["printed", `Printed (${counts.printed})`],
-    ["all", `All (${rows.length})`],
+    ["suspicious", `Suspicious (${counts.suspicious})`],
+    ["cancelled", `Cancelled (${counts.cancelled})`],
+    ["all", `All (${active.length})`],
   ];
+
+  // Flagging is a HUMAN decision. The system only suggests candidates; it never
+  // hides an order by itself, because an auto-hidden real order is an order that
+  // silently never ships.
+  const flag = async (ids: string[], suspicious: boolean, reason?: string) => {
+    if (ids.length === 0) return;
+    setBusy("flag");
+    try {
+      await fetch("/api/daraz/ship-queue", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ orderItemIds: ids, suspicious, reason: reason || null }),
+      });
+      await load();
+      setSelected([]);
+      setNote(
+        suspicious
+          ? `${ids.length} order(s) moved to Suspicious - hidden from the working tabs.`
+          : `${ids.length} order(s) returned to normal processing.`
+      );
+    } catch (e) {
+      setNote(`Flag failed: ${String(e).substring(0, 120)}`);
+    }
+    setBusy(null);
+  };
+
+  const selectDuplicates = () =>
+    setSelected(active.filter((r) => r.isDuplicate).map((r) => r.orderItemId));
 
   return (
     <div className="p-6 space-y-6">
@@ -308,6 +353,38 @@ export default function OrderProcessingPage() {
             Only the first {MAX_BATCH} will print (10s limit)
           </span>
         )}
+
+        <div className="w-px h-6 bg-gray-800" />
+
+        {tab === "suspicious" ? (
+          <button
+            onClick={() => flag(selected, false)}
+            disabled={selected.length === 0 || busy === "flag"}
+            className="flex items-center gap-2 px-4 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition-colors"
+          >
+            <FlagOff className="w-4 h-4" />
+            Not suspicious ({selected.length})
+          </button>
+        ) : tab !== "cancelled" ? (
+          <button
+            onClick={() => flag(selected, true, "Marked by user")}
+            disabled={selected.length === 0 || busy === "flag"}
+            className="flex items-center gap-2 px-4 py-1.5 bg-amber-600 hover:bg-amber-700 disabled:opacity-40 text-white rounded-lg text-xs font-medium transition-colors"
+          >
+            <Flag className="w-4 h-4" />
+            Mark suspicious ({selected.length})
+          </button>
+        ) : null}
+
+        {counts.duplicates > 0 && tab !== "suspicious" && tab !== "cancelled" && (
+          <button
+            onClick={selectDuplicates}
+            className="flex items-center gap-2 px-3 py-1.5 bg-gray-800 hover:bg-gray-700 text-amber-400 border border-amber-500/30 rounded-lg text-xs font-medium transition-colors"
+          >
+            <Copy className="w-3.5 h-3.5" />
+            Select duplicates ({counts.duplicates})
+          </button>
+        )}
         <span className="text-xs text-gray-500 ml-auto">
           Print dialog: Scale = <b className="text-gray-300">100%</b>, never &quot;Fit to page&quot;
         </span>
@@ -380,8 +457,24 @@ export default function OrderProcessingPage() {
                       {r.darazOrderId}
                     </button>
                   </td>
-                  <td className="px-4 py-3 text-gray-300 max-w-xs truncate" title={r.itemName}>
-                    {r.itemName}
+                  <td className="px-4 py-3 text-gray-300 max-w-xs">
+                    <div className="truncate" title={r.itemName}>
+                      {r.itemName}
+                    </div>
+                    {r.isDuplicate && (
+                      <span
+                        className="inline-flex items-center gap-1 mt-1 text-[10px] font-bold px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/30"
+                        title={`Same customer + same SKU appears ${r.duplicateCount} times`}
+                      >
+                        <Copy className="w-3 h-3" />
+                        DUP x{r.duplicateCount}
+                      </span>
+                    )}
+                    {r.suspicious && r.suspiciousReason && (
+                      <span className="block text-[10px] text-amber-400/70 mt-0.5">
+                        {r.suspiciousReason}
+                      </span>
+                    )}
                   </td>
                   <td className="px-4 py-3 text-gray-300">
                     {r.customerName}
@@ -399,7 +492,12 @@ export default function OrderProcessingPage() {
                   <td className="px-4 py-3 text-gray-400 text-xs">{resolveStoreName(r.storeId)}</td>
                   <td className="px-4 py-3 text-gray-500 font-mono text-xs">{r.trackingNo || "-"}</td>
                   <td className="px-4 py-3 text-right">
-                    {r.status === "ready_to_ship" ? (
+                    {r.isCancelled ? (
+                      <span className="inline-flex items-center gap-1.5 text-xs text-gray-600">
+                        <XCircle className="w-3.5 h-3.5" />
+                        Cancelled
+                      </span>
+                    ) : r.status === "ready_to_ship" ? (
                       <button
                         onClick={() => openPrint([r.orderItemId])}
                         className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors text-white ${

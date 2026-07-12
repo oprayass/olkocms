@@ -212,6 +212,9 @@ model DarazOrder {
 }
 
 model DarazOrderItem {
+  suspicious       Boolean   @default(false)
+  suspiciousReason String?
+  suspiciousAt     DateTime?
   printedAt  DateTime?
   printCount Int       @default(0)
   subscriptionId String?
