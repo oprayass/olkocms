@@ -188,51 +188,48 @@ export const GET = withTenant(async (req: NextRequest) => {
     }
 
     // ---------- READ-ONLY: valid provider codes ----------
-    // The gateway wants BOTH the nested payload AND order_item_ids:
-    //   send order_item_ids alone      -> "getShipmentProvidersReq is mandatory"
-    //   send getShipmentProvidersReq   -> "order_item_ids is mandatory"
-    // So it is not flat-vs-nested, it is flat AND nested. Same pattern as
-    // /order/document/get, which needed doc_type + order_item_ids together.
-    // Read-only: this endpoint only lists providers.
+    // Behaviour observed:
+    //   order_item_ids alone                  -> "getShipmentProvidersReq is mandatory"
+    //   getShipmentProvidersReq alone         -> "order_item_ids is mandatory"
+    //   BOTH as sibling params                -> STILL "order_item_ids is mandatory"
+    // The flat param is present and it is being ignored. So once the nested
+    // payload exists, the gateway looks for order_item_ids INSIDE the payload.
+    // Sweep the plausible nestings and report every one. Read-only.
     if (mode === "providers") {
-      const itemsJson = JSON.stringify([Number(orderItemId)]);
-      const reqPayload = JSON.stringify({ orders: [{ order_id: String(item.darazOrderId) }] });
+      const oid = String(item.darazOrderId);
+      const iid = String(orderItemId);
+      const iidNum = Number(orderItemId);
 
-      const variants: Record<string, Record<string, string>> = {
-        both_orders_payload: {
-          getShipmentProvidersReq: reqPayload,
-          order_item_ids: itemsJson,
-        },
-        both_items_payload: {
-          getShipmentProvidersReq: JSON.stringify({
-            orders: [
-              {
-                order_id: String(item.darazOrderId),
-                order_item_list: [String(orderItemId)],
-              },
-            ],
-          }),
-          order_item_ids: itemsJson,
-        },
+      const variants: Record<string, any> = {
+        p_orders_with_item_ids: { orders: [{ order_id: oid, order_item_ids: [iidNum] }] },
+        p_orders_with_item_list: { orders: [{ order_id: oid, order_item_list: [iid] }] },
+        p_top_level_item_ids: { order_item_ids: [iidNum] },
+        p_top_level_item_ids_str: { order_item_ids: [iid] },
+        p_orders_plus_top_ids: { orders: [{ order_id: oid }], order_item_ids: [iidNum] },
+        p_bare_order_items: { order_items: [{ order_item_id: iidNum }] },
       };
 
       const attempts: any[] = [];
-      for (const [name, params] of Object.entries(variants)) {
-        const viaGet = await callGet("/order/shipment/providers/get", params, token, appKey, appSecret);
-        const g = unwrap(viaGet);
-        let p: any = null;
-        if (g.apiCode !== "0") {
-          const viaPost = await callPost("/order/shipment/providers/get", params, token, appKey, appSecret);
-          p = unwrap(viaPost);
+      for (const [name, payloadObj] of Object.entries(variants)) {
+        const payload = JSON.stringify(payloadObj);
+        const params = { getShipmentProvidersReq: payload };
+
+        const viaPost = await callPost("/order/shipment/providers/get", params, token, appKey, appSecret);
+        const p = unwrap(viaPost);
+        let g: any = null;
+        if (p.apiCode !== "0") {
+          const viaGet = await callGet("/order/shipment/providers/get", params, token, appKey, appSecret);
+          g = unwrap(viaGet);
         }
-        const win = g.apiCode === "0" ? g : p;
+        const win = p.apiCode === "0" ? p : g;
+
         attempts.push({
           variant: name,
-          sentParams: params,
-          getCode: g.apiCode,
-          getMessage: g.apiMessage,
-          postCode: p?.apiCode ?? null,
-          postMessage: p?.apiMessage ?? null,
+          payload: payloadObj,
+          postCode: p.apiCode,
+          postMessage: p.apiMessage,
+          getCode: g?.apiCode ?? null,
+          getMessage: g?.apiMessage ?? null,
           ok: win?.apiCode === "0",
           errorCode: win?.errorCode ?? null,
           errorMsg: win?.errorMsg ?? null,
@@ -242,11 +239,19 @@ export const GET = withTenant(async (req: NextRequest) => {
         });
       }
 
+      const winner = attempts.find((a) => a.ok) || null;
       return NextResponse.json({
         mode: "providers",
         store: store.storeName,
         orderItemId,
         darazOrderId: item.darazOrderId,
+        winner: winner
+          ? {
+              variant: winner.variant,
+              shipmentProviders: winner.shipmentProviders,
+              shippingAllocateType: winner.shippingAllocateType,
+            }
+          : null,
         attempts,
       });
     }
