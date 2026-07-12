@@ -65,18 +65,29 @@ export default function OrderProcessingPage() {
       setSyncMsg("Pulling new orders from Daraz...");
       await fetch("/api/daraz/orders/fetch", { cache: "no-store" });
 
-      for (let pass = 0; pass < 5; pass++) {
-        setSyncMsg(`Syncing order items... (pass ${pass + 1})`);
+      // Each pass creates missing item rows AND re-checks the stalest ones
+      // against Daraz, so cancelled orders stop haunting the queue.
+      let left = -1;
+      const MAX_PASSES = 10;
+      let pass = 0;
+      for (; pass < MAX_PASSES; pass++) {
+        setSyncMsg(
+          left < 0
+            ? "Syncing order items..."
+            : `Syncing order items... ${left} orders left`
+        );
         const res = await fetch("/api/daraz/ship-queue?sync=1", { cache: "no-store" });
         const data = await res.json();
         setRows(Array.isArray(data.rows) ? data.rows : []);
-        const remaining = data?.sync?.remaining ?? 0;
         if (data?.sync?.error) {
           setNote(`Sync warning: ${data.sync.error}`);
           break;
         }
-        if (remaining === 0) break;
-        setSyncMsg(`Syncing order items... ${remaining} orders left`);
+        left = data?.sync?.remaining ?? 0;
+        if (left === 0) break;
+      }
+      if (pass >= MAX_PASSES && left > 0) {
+        setNote(`Sync stopped after ${MAX_PASSES} passes with ${left} orders left. Press Refresh again to continue.`);
       }
       await load();
       setSyncMsg(null);

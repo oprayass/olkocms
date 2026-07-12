@@ -51,7 +51,19 @@ async function callDaraz(
   return await res.json();
 }
 
-const SYNC_BATCH = 10;
+// A sync pass does two jobs, both capped so the whole request stays under
+// Vercel's 10s ceiling (each order = 1 Daraz call):
+//   CREATE  - orders in a ship stage that have no item rows yet (today's work,
+//             which the nightly cron has not reached)
+//   REFRESH - items we already hold, oldest-touched first. Without this, DB
+//             status freezes forever: five "packed" items were actually
+//             CANCELED on Daraz (duplicate orders) and sat in the queue
+//             inviting staff to Resume RTS on a dead order.
+// Refreshed items whose status leaves the ship stage (canceled, delivered...)
+// simply drop out of the queue, because the queue only selects ship-stage rows.
+const CREATE_BATCH = 5;
+const REFRESH_BATCH = 7;
+const STALE_MINUTES = 5;
 
 export const GET = withTenant(async (req: NextRequest) => {
   try {
@@ -83,8 +95,29 @@ export const GET = withTenant(async (req: NextRequest) => {
         });
         const haveSet = new Set(have.map((h) => h.darazOrderId));
         const missing = orders.filter((o) => !haveSet.has(o.darazOrderId));
-        const batch = missing.slice(0, SYNC_BATCH);
-        remaining = Math.max(0, missing.length - batch.length);
+        const createBatch = missing.slice(0, CREATE_BATCH);
+
+        // items we hold but have not re-checked lately, stalest first
+        const cutoff = new Date(Date.now() - STALE_MINUTES * 60 * 1000);
+        const staleItems = await prisma.darazOrderItem.findMany({
+          where: { status: { in: SHIP_STAGE }, updatedAt: { lt: cutoff } },
+          orderBy: { updatedAt: "asc" },
+          select: { darazOrderId: true, storeId: true },
+        });
+        const staleOrderIds: string[] = [];
+        for (const s of staleItems) {
+          if (!staleOrderIds.includes(s.darazOrderId)) staleOrderIds.push(s.darazOrderId);
+        }
+        const refreshBatch = staleOrderIds.slice(0, REFRESH_BATCH).map((id) => ({
+          darazOrderId: id,
+          storeId: staleItems.find((s) => s.darazOrderId === id)?.storeId ?? null,
+        }));
+
+        remaining =
+          Math.max(0, missing.length - createBatch.length) +
+          Math.max(0, staleOrderIds.length - refreshBatch.length);
+
+        const batch = [...createBatch, ...refreshBatch];
 
         for (const ord of batch) {
           // try the order's own store first, then the tenant's other stores
